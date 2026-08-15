@@ -9,7 +9,7 @@
 
 ## 1. 环境信息（按实际路径替换）
 
-- 插件目录：`C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-trial\workspace\dsh-auto-paste`
+- 插件目录：`C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-trial\dsh-auto-paste`
 - dsh CLI：`C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-trial\node_modules\.bin\dsh.cmd`
 - 体检脚本：`C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-trial\workspace\_tools\plugin-preflight.mjs`
 - 注意：**不要装进主 web profile**（会干扰当前运行环境）。实测用独立 profile：`dsh plugin --profile <测试用profile名> add file:<插件目录>`（profile 不存在会自动建）
@@ -25,7 +25,7 @@
 1. `npm run typecheck` → exit 0
 2. `npm run build` → exit 0，dist/ 更新
 3. `node smoke.mjs` → 输出 SMOKE-OK
-4. `npm test` → 全部 pass（应有 11 项）
+4. `npm test` → 全部 pass（应有 18 项；沙箱拦子进程时加 `--test-isolation=none`）
 任一步失败即 bug，记录错误信息。
 
 ### 阶段 C：独立 profile 实测（能做则做）
@@ -40,7 +40,7 @@
 - 空文本 / 恰好阈值 / 略超阈值
 - 同一秒多次粘贴（文件名应不冲突——毫秒后缀）
 - 特殊字符（中文、emoji、换行、`"`、`\`）
-- 超长文本（100KB）
+- 超长文本（100KB 应正常保存；**超过 1MiB 应报错且不落盘**——2026-08-16 新增上限）
 - 保存失败（只读目录/磁盘满）→ 应回退不丢数据
 
 ### 阶段 E：代码审查（必做，找隐藏 bug）
