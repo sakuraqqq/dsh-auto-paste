@@ -1,0 +1,51 @@
+{
+  "name": "dsh-auto-paste",
+  "version": "0.1.0",
+  "description": "dsh-auto-paste — a DeepSeek Harness plugin (tool template, extended with a web client paste listener). 测试评估版，禁止再分发/商用。",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "dsh-user",
+  "keywords": ["dsh-plugin", "dsh", "deepseek-harness", "paste", "attachment"],
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": "./dist/client.js",
+    "./typert": "./dist/typert.host.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": ["sessions", "connection"]
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test tests/release.test.js"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.0-rc.6",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-session": "0.1.0-rc.6",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0"
+  }
+}
