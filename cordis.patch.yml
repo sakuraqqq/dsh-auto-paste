@@ -1,0 +1,15 @@
+# dsh-auto-paste bundle layer — applied when a profile lists this bundle
+# (package.json declares `dsh.bundle.patch` pointing at this file).
+#
+# PITFALL: `name` is a PACKAGE NAME (resolved through the profile's node_modules
+# or the installation fallback `$DSH_HOME/profiles/node_modules`), NOT a
+# relative path. One row serves both halves: the Host loads the package main
+# export (pasteStore service + save_paste tool) and the web client loads the
+# `./client` export (composer paste listener, dsh.client.platform: web).
+- insert:
+    - id: dsh-auto-paste
+      name: dsh-auto-paste
+      config:
+        # Large-paste threshold (chars). The client bundle reads its own row
+        # config with the same default; change here, rebuild, reinstall.
+        minChars: 500
