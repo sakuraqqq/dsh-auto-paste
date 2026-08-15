@@ -1,3 +1,5 @@
 node_modules/
 .npm-cache/
 .pnpm-store/
+.pnpm-cache/
+pastes/
