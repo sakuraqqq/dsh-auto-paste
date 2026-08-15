@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
-import { pasteFilename, savePasteTo, resolveWorkspaceDir, isRegisteredWorkspace } from '../dist/index.js'
+import { pasteFilename, savePasteTo, resolveWorkspaceDir, isRegisteredWorkspace, assertPasteSize, MAX_PASTE_BYTES } from '../dist/index.js'
 
 const PKG_ROOT = fileURLToPath(new URL('..', import.meta.url))
 
@@ -153,6 +153,52 @@ describe('isRegisteredWorkspace — cwd boundary guard', () => {
   test('unregistered or sub path rejected', () => {
     assert.equal(isRegisteredWorkspace('C:/ws-other', workspaces), false)
     assert.equal(isRegisteredWorkspace('C:/ws-a/sub', workspaces), false)
+  })
+})
+
+describe('assertPasteSize / maxBytes — oversized pastes rejected before touching disk', () => {
+  test('default cap is 1 MiB and violations throw with byte counts', () => {
+    assert.equal(MAX_PASTE_BYTES, 1024 * 1024)
+    const big = 'x'.repeat(MAX_PASTE_BYTES + 1)
+    assert.throws(
+      () => assertPasteSize(big),
+      (err) => err instanceof Error && /exceeds the 1048576-byte limit/.test(err.message),
+    )
+  })
+
+  test('boundary: exactly maxBytes passes, one byte more throws', () => {
+    const limit = 6
+    assert.doesNotThrow(() => assertPasteSize('abcdef', limit))
+    assert.throws(() => assertPasteSize('abcdefg', limit))
+    // multibyte: 2 CJK chars = 6 UTF-8 bytes
+    assert.doesNotThrow(() => assertPasteSize('中文', limit))
+    assert.throws(() => assertPasteSize('中文x', limit))
+  })
+
+  test('savePasteTo rejects oversized text and creates no file or directory', async () => {
+    const dir = await tmpDir()
+    try {
+      const now = new Date(2026, 7, 15, 23, 0, 0, 0)
+      await assert.rejects(
+        () => savePasteTo(dir, 'hello world', now, 4),
+        (err) => err instanceof Error && /paste too large/.test(err.message),
+      )
+      // mkdir never ran: not even pastes/ exists
+      await assert.rejects(() => readFile(join(dir, 'pastes'), 'utf8'))
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('savePasteTo still accepts normal text with default cap', async () => {
+    const dir = await tmpDir()
+    try {
+      const result = await savePasteTo(dir, 'ok', new Date(2026, 7, 15, 23, 1, 0, 0))
+      assert.equal(result.chars, 2)
+      assert.equal(await readFile(join(dir, result.path), 'utf8'), 'ok')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })
 

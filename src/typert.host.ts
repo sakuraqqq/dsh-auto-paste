@@ -6,7 +6,10 @@
 // dispatches `pasteStore/savePaste` RPC calls from the web client.
 import { z } from 'zod'
 
-const savePasteText$schema = z.string()
+// Coarse character-level cap on the RPC wire (zod .max counts chars);
+// the host's savePasteTo applies the authoritative UTF-8 byte cap
+// (MAX_PASTE_BYTES = 1 MiB) before anything hits disk.
+const savePasteText$schema = z.string().max(1024 * 1024)
 const savePasteSessionId$schema = z.string()
 const savePasteResult$schema = z.object({
   path: z.string(),
