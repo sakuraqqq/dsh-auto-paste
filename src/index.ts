@@ -43,11 +43,28 @@ export function pasteFilename(now: Date = new Date()): string {
   return `${d}-${t}.txt`
 }
 
+/** Max UTF-8 bytes a single paste may occupy (1 MiB). */
+export const MAX_PASTE_BYTES = 1024 * 1024
+
+/**
+ * Guard against oversized pastes (resource-exhaustion vector): the web client
+ * applies its own 500-char floor, but the RPC and the model tool can be called
+ * with arbitrary text, so the server rejects anything above `maxBytes` BEFORE
+ * any file is created. Throws on violation.
+ */
+export function assertPasteSize(text: string, maxBytes: number = MAX_PASTE_BYTES): void {
+  const bytes = Buffer.byteLength(text, 'utf8')
+  if (bytes > maxBytes) {
+    throw new Error(`paste too large: ${bytes} bytes exceeds the ${maxBytes}-byte limit; refusing to write`)
+  }
+}
+
 /**
  * Write one paste under <workspaceDir>/pastes/<timestamp>.txt.
  * Pure standalone function — unit-testable without a booted harness.
  */
-export async function savePasteTo(workspaceDir: string, text: string, now: Date = new Date()): Promise<SavePasteResult> {
+export async function savePasteTo(workspaceDir: string, text: string, now: Date = new Date(), maxBytes: number = MAX_PASTE_BYTES): Promise<SavePasteResult> {
+  assertPasteSize(text, maxBytes)
   const rel = join('pastes', pasteFilename(now))
   const base = join(workspaceDir, rel)
   await mkdir(dirname(base), { recursive: true })
