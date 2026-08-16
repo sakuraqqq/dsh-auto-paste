@@ -40,12 +40,12 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
 
 ## 5. 许可与发布状态
 
-- **LICENSE = 测试评估许可**（禁止再分发/商用，中英双语）——发 QQ 群前必带
-- package.json：`license: SEE LICENSE IN LICENSE`、author 已填
-- README 顶部有使用条款
-- **发布状态**：QQ 群免费测试**已发出**（带条款），观察期进行中（≈2026-08-15 发出，第 3 天汇总 ≈ 2026-08-17）
+- **LICENSE = MIT**（2026-08-16 由评估许可切换，commit db4333b；Copyright (c) 2026 misakamaster）
+- package.json：`license: MIT`、author: misakamaster、files 含 src（源码随包可审查）
+- README 顶部为 MIT 许可表述
+- **发布状态**：QQ 群免费测试**已发出**（带评估许可条款），观察期进行中（≈2026-08-15 发出，第 3 天汇总 ≈ 2026-08-17）
 - **独立测试**（2026-08-16）：有条件发布；阻断项 P1（交付目录）/P2（大小上限）已处理，P3（文档同步）本次完成
-- **尚未**：RELEASE.md 阶段 A（干净环境试装）/B（许可切换）/C（npm publish）
+- **尚未**：RELEASE.md 阶段 A（干净环境试装）/阶段 C（npm publish；账号 misakamaster 已注册，发布走官方 registry 无需梯子）；阶段 B 许可切换 ✅ 已完成
 
 ## 6. 遗留事项（新对话可继续；2026-08-15 状态更新）
 
