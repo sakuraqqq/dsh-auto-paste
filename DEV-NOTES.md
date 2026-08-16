@@ -47,7 +47,8 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
 - README 顶部为 MIT 许可表述
 - **发布状态**：**已发布 dsh-auto-paste@0.1.0**（2026-08-16，官方源 registry.npmjs.org，dist-tag `next`，GitHub 源仓库 sakuraqqq/dsh-auto-paste tag v0.1.0）——QQ 群测试改用 `npm i dsh-auto-paste`（原评估许可 zip 包已过时）
 - **独立测试**（2026-08-16）：有条件发布；阻断项 P1（交付目录）/P2（大小上限）已处理，P3（文档同步）已完成
-- **0.1.1 准备中**：README npm 安装说明 + 1MiB 上限说明（本次完成）；release notes、阶段 A 正式试装验收待 0.1.1 发布时做
+- **0.1.1 已发布**（2026-08-16 21:38，官方源，dist-tag `next`；latest 仍为 0.1.0）——README 已含 npm 安装方式与 1MiB 上限说明
+- **npm 发布认证坑**（踩过）：账户 2FA = `auth-and-writes` 时，发布必须用**勾选了 bypass 2FA 的 granular token**（网页勾选易被表单报错重置——先填完其他项、最后勾选并立即 Generate）；旧式/无 bypass token 发布报 403。npm 官方正逐步限制 bypass-2FA token（见 gh.io/npm-gat-bypass2fa-deprecation），长期需关注迁移
 - **观察期**：进行中（第 3 天汇总 ≈ 2026-08-17）
 
 ## 6. 遗留事项（新对话可继续；2026-08-15 状态更新）
@@ -55,7 +56,7 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
 1. **插件介绍**：✅ 已定稿（对话内），**文字未落盘**——需向用户要定稿文字后补录到 README 顶部
 2. **QQ 群测试**：✅ 已发出（zip 含 LICENSE/README），观察期进行中（开始日期待确认，≈2026-08-15）
 3. **观察期第 3 天汇总**：待做（≈2026-08-17；按 RELEASE.md 第 0 节四项检查：落盘一致性 / F12 报错 / 多工作区 / 同秒两次）
-4. **0.1.1 发布**（version 已升，README 已修）：补 release notes（MIT + 1MiB 上限）→ npm publish → 从 registry 装新 profile 重跑阶段 A 验收 → npm 页面渲染核对
+4. **0.1.1 已发布**，剩余收尾：① release notes（npm 网页版本备注，建议文案：「0.1.1：README 补 npm 安装方式；新增 1MiB 文本大小上限（超限不落盘）；许可为 MIT」）② 从 registry 装新 profile 重跑阶段 A 验收 ③ npm 页面渲染核对 ④ 观察期第 3 天汇总（≈2026-08-17）
 5. 可选：进 awesome-dsh-plugin 注册表（稳定后）
 
 ## 7. 环境注意

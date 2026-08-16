@@ -37,8 +37,8 @@ MIT License — Copyright (c) 2026 misakamaster。
 **方式一：从 npm 安装（推荐，0.1.1 起）**
 
 ```sh
-npm i dsh-auto-paste                          # 测试版；--save-exact 可锁版
-npm i dsh-auto-paste@0.1.0                    # 或指定版本
+npm i dsh-auto-paste@next                      # 最新测试版（dist-tag: next）；--save-exact 可锁版
+npm i dsh-auto-paste@0.1.1                    # 或指定版本
 # 在插件父目录执行，以包名注册到目标 profile：
 dsh plugin --profile web add dsh-auto-paste
 dsh --profile web            # 重启 web profile，观察: [dsh-auto-paste] host ready ...
