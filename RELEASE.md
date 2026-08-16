@@ -4,7 +4,7 @@
 > 提交链：47ad2d8 → 3a832c3 → aa59f46 → 343cbf6 → 25c4a2a → db4333b（许可切换 MIT）→ e4e8b1f（记录 v0.1.0 发布）
 > 发布标准：**全自动 E2E 通过**。半自动方案（save_paste 兜底）不发布。
 > **已发布**：dsh-auto-paste@0.1.0（2026-08-16，官方源 registry.npmjs.org，dist-tag `next`，GitHub 源仓库 https://github.com/sakuraqqq/dsh-auto-paste tag v0.1.0）。
-> **0.1.1 准备中**：README 安装说明（npm 方式）+ 1MiB 上限说明 + release notes + 阶段 A 正式验收。
+> **0.1.1 已发布**（2026-08-16，官方源，dist-tag `next`；latest 仍为 0.1.0）。剩余：release notes、阶段 A 正式验收、观察期第 3 天汇总。
 
 ## 0. 观察期并行检查（自用期间顺手做，第 3 天汇总）
 
@@ -82,10 +82,11 @@ npm publish                    # ⚠️ dist-tag 注意：README 记录过 @deep
 
 ### 0.1.1 发布待办（2026-08-16 新增）
 
-- [ ] README 安装说明已加 npm 方式（commit 本次）；1MiB 上限说明已加
-- [ ] release notes：说明 MIT 许可 + 1MiB 上限
-- [ ] `npm publish`（version 已升 0.1.1）
-- [ ] 发布后从 registry 安装重跑阶段 A 验收
+- [x] README 安装说明加 npm 方式 + 1MiB 上限说明（commit 20d1d46）
+- [x] `npm publish`（2026-08-16 21:38 成功，dist-tag `next`；bypass-2FA granular token 生成后发布）
+- [ ] release notes：说明 MIT 许可 + 1MiB 上限（npm 网页版块，文案见 DEV-NOTES §6）
+- [ ] 发布后从 registry 安装重跑阶段 A 验收（`npm i dsh-auto-paste@next`）
+- [ ] npm 页面 README 渲染核对
 - [ ] 观察期第 3 天汇总（≈2026-08-17）
 
 ## 4. 已知边界用例（观察期 / 阶段 A 顺手测）
