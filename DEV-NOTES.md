@@ -57,7 +57,7 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
 1. **插件介绍**：✅ 已定稿（对话内），**文字未落盘**——需向用户要定稿文字后补录到 README 顶部
 2. **QQ 群测试**：✅ 已发出（zip 含 LICENSE/README），观察期进行中（开始日期待确认，≈2026-08-15）
 3. **观察期第 3 天汇总**：待做（≈2026-08-17；按 RELEASE.md 第 0 节四项检查：落盘一致性 / F12 报错 / 多工作区 / 同秒两次）
-4. **0.1.2 已发布（latest）+ 阶段 A 验收完成**（2026-08-17），剩余：① release notes（npm 网页 Versions → 0.1.2，文案：「0.1.2（latest）：补 repository/homepage 元数据（npm 页面可跳 GitHub 源码）；README 安装示例更新为 latest 方式。1 MiB 文本大小上限自 0.1.0 起已有；0.1.1 更新 README（npm 安装说明）。许可：MIT」）② npm 页面渲染/链接核对 ③ **awesome-dsh-plugin 提交**：fork awesome-dsh-plugin/awesome-dsh-plugin → README.md + README.zh.md 各加条目 → PR（标题 `Add sakuraqqq/dsh-auto-paste (<分类>)`；条目：「- [dsh-auto-paste](https://github.com/sakuraqqq/dsh-auto-paste) — Auto-save large pasted text (500+ chars) into pastes/<timestamp>.txt with a path reference. Install: npm i dsh-auto-paste」/中文版）④ 观察期第 3 天汇总（≈2026-08-17）
+4. **0.1.2 已发布（latest）+ 阶段 A 验收完成**（2026-08-17），剩余：① release notes **跳过**（npm 新版 UI 无编辑入口，纯装饰）② npm 页面渲染/链接核对——**已完成**（README latest 安装方式、sidebar Repository/Homepage 正常，2026-08-17 用户确认）③ **awesome-dsh-plugin 提交**：fork awesome-dsh-plugin/awesome-dsh-plugin → README.md + README.zh.md 各加条目 → PR（标题 `Add sakuraqqq/dsh-auto-paste (<分类>)`；条目：「- [dsh-auto-paste](https://github.com/sakuraqqq/dsh-auto-paste) — Auto-save large pasted text (500+ chars) into pastes/<timestamp>.txt with a path reference. Install: npm i dsh-auto-paste」/中文版）④ 观察期第 3 天汇总（≈2026-08-17）
 5. 可选：进 awesome-dsh-plugin 注册表（稳定后）
 
 ## 7. 环境注意
