@@ -85,7 +85,7 @@ npm publish                    # ⚠️ dist-tag 注意：README 记录过 @deep
 - [x] README 安装说明加 npm 方式 + 1MiB 上限说明（commit 20d1d46）
 - [x] `npm publish`（2026-08-16 21:38 成功，dist-tag `next`；bypass-2FA granular token 生成后发布）
 - [x] `npm publish` 0.1.2（2026-08-17 00:27 成功，`latest` tag；`next` 保持 0.1.1 未动；release notes 文案见 DEV-NOTES §6）
-- [ ] release notes：npm 网页 Versions → 0.1.2 补备注（文案见 DEV-NOTES §6）
+- [x] release notes：**跳过**——npm 新版 UI 已无编辑入口（旧版才有 Add release notes），纯装饰项不影响功能/README/搜索
 - [ ] 发布后从 registry 安装重跑阶段 A 验收（`npm i dsh-auto-paste`）
 - [ ] npm 页面 README 渲染 + repository/homepage 链接核对
 - [ ] awesome-dsh-plugin 提交（条目文案见 DEV-NOTES §6）
