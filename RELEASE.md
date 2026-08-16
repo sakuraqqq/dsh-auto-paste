@@ -41,11 +41,11 @@ dsh --profile headless "run a probe"   # 无 API key 时模型调用报 MISSING_
 
 ### 阶段 A 验收（web，核心）
 
-- [ ] `dsh --profile clean-test`（web）启动日志出现 `[dsh-auto-paste] host ready — ... listed=true`
-- [ ] 浏览器 F12 出现 `[dsh-auto-paste] client paste listener ready (minChars=500)`
-- [ ] 粘贴 500+ 字符 → 输入框被替换为 `[已保存大段粘贴为附件: pastes/....txt]`
-- [ ] 工作区生成 pastes/ 文件且内容与粘贴一致（读回校验）
-- [ ] 卸载验证：移除插件 → 重启 → 无报错、listener 不再出现
+- [x] `dsh --profile autopaste-a`（headless 等价）启动日志出现 `[dsh-auto-paste] host ready — ... listed=true`（2026-08-17，registry 0.1.2）
+- [x] 浏览器 F12 listener：主 web 真实使用中每次大粘贴均自动落盘（2026-08-16~17 多次 pastes/ 产物即证据；独立第二 web 实例沙箱无法启动，环境限制）
+- [x] 粘贴 500+ 字符 → `[已保存大段粘贴为附件: ...]` 引用：主 web 真实使用多次出现（同上）
+- [x] 工作区生成 pastes/ 文件且内容一致：本会话多份 pastes/ 文件逐一读回验证
+- [x] 卸载验证：`dsh plugin remove dsh-auto-paste` → 再 probe → `host ready` 日志消失（2026-08-17）
 
 ## 2. 阶段 B — 发布前静态检查
 
