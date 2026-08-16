@@ -1,8 +1,10 @@
 # dsh-auto-paste 发布检查清单（Release Checklist）
 
 > 状态：E2E 已通过（2026-08-15），用户自用观察期进行中。许可切换 ✅（2026-08-16）。
-> 提交链：47ad2d8 → 3a832c3 → aa59f46 → 343cbf6 → 25c4a2a → db4333b（许可切换 MIT）
+> 提交链：47ad2d8 → 3a832c3 → aa59f46 → 343cbf6 → 25c4a2a → db4333b（许可切换 MIT）→ e4e8b1f（记录 v0.1.0 发布）
 > 发布标准：**全自动 E2E 通过**。半自动方案（save_paste 兜底）不发布。
+> **已发布**：dsh-auto-paste@0.1.0（2026-08-16，官方源 registry.npmjs.org，dist-tag `next`，GitHub 源仓库 https://github.com/sakuraqqq/dsh-auto-paste tag v0.1.0）。
+> **0.1.1 准备中**：README 安装说明（npm 方式）+ 1MiB 上限说明 + release notes + 阶段 A 正式验收。
 
 ## 0. 观察期并行检查（自用期间顺手做，第 3 天汇总）
 
@@ -61,10 +63,10 @@ npm pack --dry-run     # 10 文件：README + LICENSE + cordis.patch.yml + dist/
   - [x] `author` 字段与完整 git 历史保留（原创证据不丢）
   - [x] `npm pack --dry-run` 确认 tarball 含 LICENSE（MIT 全文）+ src/（源码随包可审查，共 10 文件）
   - [x] git 提交留痕：db4333b "license: switch to MIT for public release (author misakamaster, files include src for source transparency)"
-  - [ ] 发布后补一条 npm 版本备注（release notes）说明许可变更
+  - [ ] 发布后补一条 npm 版本备注（release notes）说明许可变更（0.1.1 发布时补）
 - [x] version 定版：0.1.0（2026-08-16 用户确认保持）
-- [ ] 准入两问复核：① 公开源码/文档 ✓（npm 页 + README + 包内 src/）② 不外发数据/无额外权限 ✓（代码复核：无 fetch/网络，只写本地 pastes/）——发布前复核
-- [ ] registry 包名确认未被占用（dsh-auto-paste 404 ✓，2026-08-15 查过）——发布前复核
+- [x] 准入两问复核：① 公开源码/文档 ✓（npm 页 + README + 包内 src/）② 不外发数据/无额外权限 ✓（代码复核：无 fetch/网络，只写本地 pastes/）——发布即证明复核通过
+- [x] registry 包名确认未被占用（dsh-auto-paste 404 ✓，2026-08-15 查过；0.1.0 发布成功即未被占用）
 
 ## 3. 阶段 C — 发布与发布后验证
 
@@ -74,8 +76,17 @@ npm publish                    # ⚠️ dist-tag 注意：README 记录过 @deep
                                # 想保守可先 --tag next 观察，确认无误再 --tag latest
 ```
 
-- [ ] 发布后从 registry 装到新 profile 重跑阶段 A 验收（不再用 tarball/link）
-- [ ] npm 页面描述/README 渲染正常
+- [x] `npm publish`（2026-08-16，v0.1.0，官方源 registry.npmjs.org，dist-tag `next`，commit e4e8b1f 记录）
+- [ ] 发布后从 registry 装到新 profile 重跑阶段 A 验收（不再用 tarball/link）——0.1.1 发布后执行
+- [ ] npm 页面描述/README 渲染正常——0.1.1 发布后核对
+
+### 0.1.1 发布待办（2026-08-16 新增）
+
+- [ ] README 安装说明已加 npm 方式（commit 本次）；1MiB 上限说明已加
+- [ ] release notes：说明 MIT 许可 + 1MiB 上限
+- [ ] `npm publish`（version 已升 0.1.1）
+- [ ] 发布后从 registry 安装重跑阶段 A 验收
+- [ ] 观察期第 3 天汇总（≈2026-08-17）
 
 ## 4. 已知边界用例（观察期 / 阶段 A 顺手测）
 

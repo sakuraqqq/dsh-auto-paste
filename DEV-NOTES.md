@@ -25,6 +25,8 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
 - **会话 B（PTC 修 bug）**：排查"插件不生效"（F12 控制台错误）→ 修复 → 方案 A/B 决策（A=全自动 E2E，B=半自动兜底不发布）→ 多 AI 交叉验证（Chatbox/Codex）→ 统一 LICENSE（评估许可）→ smoke 毫秒文件名同步 → 发布准备（QQ 群测试计划、打包到桌面、插件介绍）。
 - **会话 C（2026-08-15 状态同步）**：QQ 群测试已发出（观察期进行中）、插件介绍已定稿但未落盘、全自动 E2E 已通过（RELEASE.md 状态行）。
 - **会话 D（2026-08-16 独立测试 + 修复）**：独立第三方测试报告结论「有条件发布」（无 P0，8/8 边界用例通过）；处理后三个阻断项——P1 交付目录环境损坏（node_modules 悬空 junction，删装重建修复）✅、P2 缺文本大小上限（savePasteTo/assertPasteSize 加 1MiB 字节校验 + RPC schema 粗校验）✅、P3 本文档与 TESTING.md 同步 ✅。
+- **会话 E（2026-08-16 发布）**：许可切换 MIT（db4333b，files 含 src 源码随包可审查）→ GitHub 源仓库推送（sakuraqqq/dsh-auto-paste，tag v0.1.0）→ npm publish v0.1.0（官方源 registry.npmjs.org，dist-tag `next`）→ README 加发布状态段（e4e8b1f 记录）。
+- **会话 F（2026-08-16 0.1.1 准备）**：README 补 npm 安装方式 + 1MiB 上限说明；version 升 0.1.1；RELEASE.md 阶段 C 勾选 + 0.1.1 待办；发布版验证（tarball 含最新 dist maxBytes ✅、LICENSE/README/package.json 三处 MIT 同步 ✅）。
 
 ## 4. 测试状态（已验证）
 
@@ -43,16 +45,17 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
 - **LICENSE = MIT**（2026-08-16 由评估许可切换，commit db4333b；Copyright (c) 2026 misakamaster）
 - package.json：`license: MIT`、author: misakamaster、files 含 src（源码随包可审查）
 - README 顶部为 MIT 许可表述
-- **发布状态**：QQ 群免费测试**已发出**（带评估许可条款），观察期进行中（≈2026-08-15 发出，第 3 天汇总 ≈ 2026-08-17）
-- **独立测试**（2026-08-16）：有条件发布；阻断项 P1（交付目录）/P2（大小上限）已处理，P3（文档同步）本次完成
-- **尚未**：RELEASE.md 阶段 A（干净环境试装）/阶段 C（npm publish；账号 misakamaster 已注册，发布走官方 registry 无需梯子）；阶段 B 许可切换 ✅ 已完成
+- **发布状态**：**已发布 dsh-auto-paste@0.1.0**（2026-08-16，官方源 registry.npmjs.org，dist-tag `next`，GitHub 源仓库 sakuraqqq/dsh-auto-paste tag v0.1.0）——QQ 群测试改用 `npm i dsh-auto-paste`（原评估许可 zip 包已过时）
+- **独立测试**（2026-08-16）：有条件发布；阻断项 P1（交付目录）/P2（大小上限）已处理，P3（文档同步）已完成
+- **0.1.1 准备中**：README npm 安装说明 + 1MiB 上限说明（本次完成）；release notes、阶段 A 正式试装验收待 0.1.1 发布时做
+- **观察期**：进行中（第 3 天汇总 ≈ 2026-08-17）
 
 ## 6. 遗留事项（新对话可继续；2026-08-15 状态更新）
 
 1. **插件介绍**：✅ 已定稿（对话内），**文字未落盘**——需向用户要定稿文字后补录到 README 顶部
 2. **QQ 群测试**：✅ 已发出（zip 含 LICENSE/README），观察期进行中（开始日期待确认，≈2026-08-15）
 3. **观察期第 3 天汇总**：待做（≈2026-08-17；按 RELEASE.md 第 0 节四项检查：落盘一致性 / F12 报错 / 多工作区 / 同秒两次）
-4. **RELEASE.md 剩余**：阶段 A 干净环境试装（2026-08-16 第三方已做过等价验证）、阶段 B 许可切换（评估许可 → MIT，三处同步 + git 留痕）、阶段 C npm publish（发布标准「全自动 E2E」已通过；测试阻断项 P1/P2/P3 已全部处理）
+4. **0.1.1 发布**（version 已升，README 已修）：补 release notes（MIT + 1MiB 上限）→ npm publish → 从 registry 装新 profile 重跑阶段 A 验收 → npm 页面渲染核对
 5. 可选：进 awesome-dsh-plugin 注册表（稳定后）
 
 ## 7. 环境注意

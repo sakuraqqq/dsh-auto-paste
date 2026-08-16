@@ -23,6 +23,7 @@ MIT License — Copyright (c) 2026 misakamaster。
    - 宿主把文本写入当前会话工作区的 `pastes/<时间戳>.txt`；
    - 输入框里插入文件路径引用（如 `[已保存大段粘贴为附件: pastes/20260815-103000.txt (1234 字符)]`），消息里引用该路径，模型可读该文件。
    - 保存失败时回退为普通粘贴（原始文本直接进输入框），不丢数据。
+   - 超过 **1 MiB** 的文本会被服务端拒绝（大小上限，防资源耗尽）：报错并回退为普通粘贴，不落盘。
 2. **save_paste 工具（纪律兜底）** — 宿主同时注册 `save_paste` 工具，模型在用户贴大段文字时可主动调用，把文本持久化为 `pastes/<时间戳>.txt` 并在回复中引用路径。建议在项目 `AGENTS.md` 加一行纪律：
 
    ```markdown
@@ -33,11 +34,23 @@ MIT License — Copyright (c) 2026 misakamaster。
 
 ## Install / 安装与激活
 
+**方式一：从 npm 安装（推荐，0.1.1 起）**
+
+```sh
+npm i dsh-auto-paste                          # 测试版；--save-exact 可锁版
+npm i dsh-auto-paste@0.1.0                    # 或指定版本
+# 在插件父目录执行，以包名注册到目标 profile：
+dsh plugin --profile web add dsh-auto-paste
+dsh --profile web            # 重启 web profile，观察: [dsh-auto-paste] host ready ...
+# 刷新浏览器页面后，控制台可见: [dsh-auto-paste] client paste listener ready (minChars=500)
+```
+
+**方式二：本地目录安装（开发/调试）**
+
 ```sh
 # 在插件父目录（本仓库根）执行；相对路径锚定调用目录：
 dsh plugin --profile web add ./dsh-auto-paste
-dsh --profile web            # 重启 web profile，观察: [dsh-auto-paste] host ready ...
-# 刷新浏览器页面后，控制台可见: [dsh-auto-paste] client paste listener ready (minChars=500)
+dsh --profile web
 ```
 
 改动插件后：`pnpm install && pnpm run build`（tsc → dist/），然后重启 `dsh --profile web` 并刷新页面。`minChars` 阈值在 `cordis.patch.yml` 的 row config 中调整。
