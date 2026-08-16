@@ -1,7 +1,7 @@
 # dsh-auto-paste 发布检查清单（Release Checklist）
 
-> 状态：E2E 已通过（2026-08-15），用户自用观察期进行中。
-> 提交链：47ad2d8 → 3a832c3 → aa59f46 → 343cbf6 → 25c4a2a
+> 状态：E2E 已通过（2026-08-15），用户自用观察期进行中。许可切换 ✅（2026-08-16）。
+> 提交链：47ad2d8 → 3a832c3 → aa59f46 → 343cbf6 → 25c4a2a → db4333b（许可切换 MIT）
 > 发布标准：**全自动 E2E 通过**。半自动方案（save_paste 兜底）不发布。
 
 ## 0. 观察期并行检查（自用期间顺手做，第 3 天汇总）
@@ -50,21 +50,21 @@ dsh --profile headless "run a probe"   # 无 API key 时模型调用报 MISSING_
 ```sh
 cd workspace/dsh-auto-paste
 pnpm run typecheck     # 通过
-pnpm test              # 11 项全绿（node:test）
-npm pack --dry-run     # 6 文件：README + cordis.patch.yml + dist/{client,index,typert.host}.js + package.json
+pnpm test              # 18 项全绿（node:test）
+npm pack --dry-run     # 10 文件：README + LICENSE + cordis.patch.yml + dist/{client,index,typert.host}.js + src/{index.ts,client.js,typert.host.ts} + package.json
 ```
 
-- [ ] **许可切换（公开发布前必须完成；三处同步 + git 提交留痕）**
-  - [ ] LICENSE 文件：当前是「测试评估许可 v1.0」（2026-08-15，含严禁再分发/商用条款），替换为 MIT 全文（版权行保留作者名；`[作者名]` 占位符替换为真实作者）
-  - [ ] package.json `license` 字段保持 "MIT"（当前已是 "MIT"，但与 LICENSE 文件不一致——三处真正同步后才算完成）
-  - [ ] README 顶部「⚖️ 使用条款（测试评估版）」（第 6-11 行）删除或改写为 MIT 许可表述，移除「仅限个人本地测试 / 严禁再分发 / 商用」等评估版限制
-  - [ ] 切换时保留 `author` 字段与完整 git 历史（原创证据不丢；不得在重写中移除作者信息）
-  - [ ] 三处同步后 `npm pack --dry-run` 确认 tarball 含 LICENSE（MIT 全文）
-  - [ ] git 提交留痕（提交信息注明许可变更，如 "license: switch to MIT for public release"）
+- [x] **许可切换（✅ 2026-08-16，commit db4333b）**
+  - [x] LICENSE 文件：已替换为 MIT 全文（Copyright (c) 2026 misakamaster）
+  - [x] package.json `license` = "MIT"、description 移除评估版字样、author = misakamaster
+  - [x] README 顶部「使用条款（测试评估版）」改写为 MIT 许可表述
+  - [x] `author` 字段与完整 git 历史保留（原创证据不丢）
+  - [x] `npm pack --dry-run` 确认 tarball 含 LICENSE（MIT 全文）+ src/（源码随包可审查，共 10 文件）
+  - [x] git 提交留痕：db4333b "license: switch to MIT for public release (author misakamaster, files include src for source transparency)"
   - [ ] 发布后补一条 npm 版本备注（release notes）说明许可变更
-- [ ] version 定版（当前 0.1.0；如要 1.0.0 在此步改）
-- [ ] 准入两问复核：① 公开源码/文档 ✓（npm 页 + README）② 不外发数据/无额外权限 ✓（代码复核：无 fetch/网络，只写本地 pastes/）
-- [ ] registry 包名确认未被占用（dsh-auto-paste 404 ✓，2026-08-15 查过）
+- [x] version 定版：0.1.0（2026-08-16 用户确认保持）
+- [ ] 准入两问复核：① 公开源码/文档 ✓（npm 页 + README + 包内 src/）② 不外发数据/无额外权限 ✓（代码复核：无 fetch/网络，只写本地 pastes/）——发布前复核
+- [ ] registry 包名确认未被占用（dsh-auto-paste 404 ✓，2026-08-15 查过）——发布前复核
 
 ## 3. 阶段 C — 发布与发布后验证
 
