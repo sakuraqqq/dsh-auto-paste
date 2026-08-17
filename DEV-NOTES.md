@@ -27,6 +27,7 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
 - **会话 D（2026-08-16 独立测试 + 修复）**：独立第三方测试报告结论「有条件发布」（无 P0，8/8 边界用例通过）；处理后三个阻断项——P1 交付目录环境损坏（node_modules 悬空 junction，删装重建修复）✅、P2 缺文本大小上限（savePasteTo/assertPasteSize 加 1MiB 字节校验 + RPC schema 粗校验）✅、P3 本文档与 TESTING.md 同步 ✅。
 - **会话 E（2026-08-16 发布）**：许可切换 MIT（db4333b，files 含 src 源码随包可审查）→ GitHub 源仓库推送（sakuraqqq/dsh-auto-paste，tag v0.1.0）→ npm publish v0.1.0（官方源 registry.npmjs.org，dist-tag `next`）→ README 加发布状态段（e4e8b1f 记录）。
 - **会话 F（2026-08-16 0.1.1 准备）**：README 补 npm 安装方式 + 1MiB 上限说明；version 升 0.1.1；RELEASE.md 阶段 C 勾选 + 0.1.1 待办；发布版验证（tarball 含最新 dist maxBytes ✅、LICENSE/README/package.json 三处 MIT 同步 ✅）。
+- **会话 G（2026-08-17~18 发布收尾）**：0.1.2 发布（latest，metadata 元数据 + README latest 安装方式）、阶段 A 验收通过（registry 安装 + 独立 profile + host ready + 卸载，commit 7699427）、npm 页面渲染核对、release notes 跳过（新版 UI 无入口）；**GitHub 2FA 已启用**（2026-08-18，Android Aegis TOTP + 恢复码已存）——后续 GitHub 操作不受限。
 
 ## 4. 测试状态（已验证）
 
@@ -57,7 +58,7 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
 1. **插件介绍**：✅ 已定稿（对话内），**文字未落盘**——需向用户要定稿文字后补录到 README 顶部
 2. **QQ 群测试**：✅ 已发出（zip 含 LICENSE/README），观察期进行中（开始日期待确认，≈2026-08-15）
 3. **观察期第 3 天汇总**：待做（≈2026-08-17；按 RELEASE.md 第 0 节四项检查：落盘一致性 / F12 报错 / 多工作区 / 同秒两次）
-4. **0.1.2 已发布（latest）+ 阶段 A 验收完成**（2026-08-17），剩余：① release notes **跳过**（npm 新版 UI 无编辑入口，纯装饰）② npm 页面渲染/链接核对——**已完成**（README latest 安装方式、sidebar Repository/Homepage 正常，2026-08-17 用户确认）③ **awesome-dsh-plugin 提交**：fork awesome-dsh-plugin/awesome-dsh-plugin → README.md + README.zh.md 各加条目 → PR（标题 `Add sakuraqqq/dsh-auto-paste (<分类>)`；条目：「- [dsh-auto-paste](https://github.com/sakuraqqq/dsh-auto-paste) — Auto-save large pasted text (500+ chars) into pastes/<timestamp>.txt with a path reference. Install: npm i dsh-auto-paste」/中文版）④ 观察期第 3 天汇总（≈2026-08-17）
+4. **0.1.2 已发布（latest）+ 阶段 A 验收完成**（2026-08-17），剩余：① release notes **跳过**（npm 新版 UI 无编辑入口，纯装饰）② npm 页面渲染/链接核对——**已完成**（README latest 安装方式、sidebar Repository/Homepage 正常，2026-08-17 用户确认）③ **awesome-dsh-plugin 提交**（GitHub 2FA 已解决，可继续）：fork awesome-dsh-plugin/awesome-dsh-plugin → README.md + README.zh.md 各加条目 → PR（标题 `Add sakuraqqq/dsh-auto-paste (<分类>)`；条目：「- [dsh-auto-paste](https://github.com/sakuraqqq/dsh-auto-paste) — Auto-save large pasted text (500+ chars) into pastes/<timestamp>.txt with a path reference. Install: npm i dsh-auto-paste」/中文版）④ 观察期第 3 天汇总（≈2026-08-17）⑤ **GitHub 仓库 topics**（改天做）：仓库 Settings → Topics 填 dsh-plugin / deepseek-harness / paste / attachment；Description 也可顺手填
 5. 可选：进 awesome-dsh-plugin 注册表（稳定后）
 
 ## 7. 环境注意
