@@ -28,6 +28,7 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
 - **会话 E（2026-08-16 发布）**：许可切换 MIT（db4333b，files 含 src 源码随包可审查）→ GitHub 源仓库推送（sakuraqqq/dsh-auto-paste，tag v0.1.0）→ npm publish v0.1.0（官方源 registry.npmjs.org，dist-tag `next`）→ README 加发布状态段（e4e8b1f 记录）。
 - **会话 F（2026-08-16 0.1.1 准备）**：README 补 npm 安装方式 + 1MiB 上限说明；version 升 0.1.1；RELEASE.md 阶段 C 勾选 + 0.1.1 待办；发布版验证（tarball 含最新 dist maxBytes ✅、LICENSE/README/package.json 三处 MIT 同步 ✅）。
 - **会话 G（2026-08-17~18 发布收尾）**：0.1.2 发布（latest，metadata 元数据 + README latest 安装方式）、阶段 A 验收通过（registry 安装 + 独立 profile + host ready + 卸载，commit 7699427）、npm 页面渲染核对、release notes 跳过（新版 UI 无入口）；**GitHub 2FA 已启用**（2026-08-18，Android Aegis TOTP + 恢复码已存）——后续 GitHub 操作不受限。
+- **会话 H（2026-08-18 上架 + 热装攻坚）**：确认 npm 0.1.2 已发布、GitHub 0.1.2+v0.1.2 tag 已同步，废弃 HANDOFF-GITHUB-NPM.md 归档；上架 PR **#1688** 已提（收录三件套：YAML 条目 + 两份 README 用官方脚本同款逻辑生成到「与线上只差一行」精度；dsh-plugin topic 已加；两个自动检查全绿「Entries look good」，等维护者 Merged）；**从 GitHub 源安装成功**（dsh plugin add）；**免重启热装攻坚成功且重启持久**（详见 §8 坑）；实测粘贴 12442 字符自动落盘 ✅。
 
 ## 4. 测试状态（已验证）
 
@@ -51,15 +52,17 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
 - **独立测试**（2026-08-16）：有条件发布；阻断项 P1（交付目录）/P2（大小上限）已处理，P3（文档同步）已完成
 - **0.1.2 已发布**（2026-08-17，官方源，`latest: 0.1.2`；`next: 0.1.1`）——repository/homepage 元数据 + README latest 安装方式；1MiB 上限自 0.1.0 起已有（0.1.1 仅更新 README）
 - **npm 发布认证坑**（踩过）：账户 2FA = `auth-and-writes` 时，发布必须用**勾选了 bypass 2FA 的 granular token**（网页勾选易被表单报错重置——先填完其他项、最后勾选并立即 Generate）；旧式/无 bypass token 发布报 403。npm 官方正逐步限制 bypass-2FA token（见 gh.io/npm-gat-bypass2fa-deprecation），长期需关注迁移
-- **观察期**：进行中（第 3 天汇总 ≈ 2026-08-17）
+- **观察期**：汇总未落盘（RELEASE.md 第 0 节四项检查待补，标准「第 3 天 ≈ 2026-08-17」已过，随时可补）
+- **上架**：awesome-dsh-plugin PR **#1688**（2026-08-18，全绿待合并；dsh-plugin topic 已加）
 
 ## 6. 遗留事项（新对话可继续；2026-08-15 状态更新）
 
 1. **插件介绍**：✅ 已定稿（对话内），**文字未落盘**——需向用户要定稿文字后补录到 README 顶部
 2. **QQ 群测试**：✅ 已发出（zip 含 LICENSE/README），观察期进行中（开始日期待确认，≈2026-08-15）
 3. **观察期第 3 天汇总**：待做（≈2026-08-17；按 RELEASE.md 第 0 节四项检查：落盘一致性 / F12 报错 / 多工作区 / 同秒两次）
-4. **0.1.2 已发布（latest）+ 阶段 A 验收完成**（2026-08-17），剩余：① release notes **跳过**（npm 新版 UI 无编辑入口，纯装饰）② npm 页面渲染/链接核对——**已完成**（README latest 安装方式、sidebar Repository/Homepage 正常，2026-08-17 用户确认）③ **awesome-dsh-plugin 提交**（GitHub 2FA 已解决，可继续）：fork awesome-dsh-plugin/awesome-dsh-plugin → README.md + README.zh.md 各加条目 → PR（标题 `Add sakuraqqq/dsh-auto-paste (<分类>)`；条目：「- [dsh-auto-paste](https://github.com/sakuraqqq/dsh-auto-paste) — Auto-save large pasted text (500+ chars) into pastes/<timestamp>.txt with a path reference. Install: npm i dsh-auto-paste」/中文版）④ 观察期第 3 天汇总（≈2026-08-17）⑤ **GitHub 仓库 topics**（改天做）：仓库 Settings → Topics 填 dsh-plugin / deepseek-harness / paste / attachment；Description 也可顺手填
-5. 可选：进 awesome-dsh-plugin 注册表（稳定后）
+4. **上架 PR #1688**（2026-08-18）：⏳ 等维护者 Merged（行情 1-3 天）——合并即进 awesome 市场，届时同步「已上架」状态
+5. **观察期第 3 天汇总**：待补（按 RELEASE.md 第 0 节四项：落盘一致性 / F12 报错 / 多工作区 / 同秒两次）
+6. 可选：npm dist-tag 迁移关注（npm 正逐步限制 bypass-2FA token，正式版发布前核对）
 
 ## 7. 环境注意
 
@@ -67,3 +70,17 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
 - pastes/ 已加入 workspace .gitignore（粘贴数据不入库）；dsh-auto-paste 自己的 git 只跟踪源码
 - 改插件代码后：`npm run build` → 重启 web（无注入器，重启是最快的验证方式）
 - 全局规则：装插件前跑 preflight、dsh 内部状态不手改（见记忆）
+## 8. 技术坑（会话 H 硬核攻坚，防呆）
+
+### 8.1 super-injector 免重启热装的 loader 坑
+- **现象**：热装失败，dsh 插件 loaded 后行为异常/不生效。
+- **根因**：super-injector 的 loader 解析的是 **profile 副本**而非插件源码——改的是源码但 loader 读的还是旧副本，自然不对。
+- **破案**：先发现「loader 读副本而非源码」→ 改对文件 → 但仍不对 → 进一步发现 **产线差异**：本插件 src 是 **tsc 产线**（tsc → dist/），而注入器/热装管线认 **tsdown 产线**，两者产物结构/入口不一致。
+- **解法**：用 **相对路径补丁 + pnpm link: 直连源码** 绕过产线差异；免重启热装成功且重启后依然 active。
+- **教训**：热装类工具对插件构建产线有隐含要求；若插件用 tsc 而非 tsdown，先对齐产线再谈热装，别在 loader/副本层面打转。
+
+### 8.2 GitHub 源安装 & pnpm approve-builds
+- `dsh plugin add <github-url>` 从 GitHub 装插件时，若 pnpm 因脚本拒绝构建（approve-builds 机制），需先放行对应包名再继续，否则构建被拒。
+
+### 8.3 上架 awesome-dsh-plugin 的「收录三件套」精度
+- 提交 PR 前用**官方脚本同款逻辑**重新生成 README（中英两份）+ YAML 条目，验证到「与线上只差自己那一条目」的精度，CI（Entries look good）即一次通过。
