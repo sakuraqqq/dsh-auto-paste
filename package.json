@@ -45,7 +45,10 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/sync-lib.mjs",
+    "build:client": "node scripts/sync-client.mjs",
+    "build:all": "npm run build && npm run build:client",
+    "release": "node scripts/release.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test tests/release.test.js"
   },
