@@ -1,0 +1,30 @@
+# 迁移转接说明（MIGRATE）
+
+> 旧项目冻结迁移到此目录。本文件说明来源、时间、状态与基线。
+
+## 迁移信息
+
+- **迁移日期**：2026-08-22
+- **来源目录**：`C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-trial\dsh-auto-paste`（旧，已冻结）
+- **目标目录**：`C:\Users\测试\dsh-workspace\dsh-auto-paste`（新工作区）
+- **迁移方式**：全量复制（含 .git 历史），排除 node_modules/pastes/缓存/旧包体
+- **git 基线**：commit `4356821`（release 脚本 --json 校验升级 + lib/ 入库）
+- **SHA 核验**：13 个关键文件新旧一致（2026-08-22 实测）
+
+## 当前状态
+
+- dsh 已全局安装，插件处于观察期
+- npm：`dsh-auto-paste@0.1.2`（latest）/ `0.1.1`（next）
+- 上架：PR #1688 待合并（awesome-dsh-plugin）
+- 旧目录已冻结：不再写入，仅留档
+
+## 迁移后待办
+
+- [x] 新目录 `pnpm install`（2026-08-22 完成，21 包，typecheck/build/test 18/18 全绿）
+- [x] 新目录 git safe.directory 白名单（2026-08-22 已加）
+- [ ] 观察期汇总（RELEASE.md 第 0 节四项）
+- [ ] PR #1688 合并后同步状态
+
+## 来源说明
+
+本项目由 AI 辅助开发（会话 A-H），许可 MIT（Copyright misakamaster），依赖全宽松许可，无传染性许可（2026-08-22 许可卫生审查）。
