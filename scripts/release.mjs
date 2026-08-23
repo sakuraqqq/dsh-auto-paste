@@ -122,10 +122,28 @@ ok('测试全绿')
 
 // ── 阶段 5: 打包预检 ────────────────────────────────────
 log('阶段 5/9  npm pack --dry-run 发布清单核对')
-const packOut = sh('npm pack --dry-run', { silent: true })
-const fileCount = (packOut.match(/npm notice\s+\d+\.\d+ [kK]?B\s+/g) || []).length
-console.log(packOut)
-ok(`清单核对完成（${fileCount} 个文件，含 LICENSE + src + dist + cordis.patch.yml）`)
+// 用 --json 拿结构化清单（跨 npm 版本稳定；npm 11 的 plain 输出不含文件列表，
+// 2026-08-19 实测只打一行 tgz 名——不能依赖 plain 文本）。
+const packJson = sh('npm pack --dry-run --json', { silent: true })
+const packMeta = JSON.parse(packJson)
+const packed = packMeta?.[0]?.files?.map((f) => f.path) ?? []
+console.log(`${packMeta?.[0]?.filename ?? '(unknown tgz)'} — ${packed.length} files, ${packMeta?.[0]?.unpackedSize ?? 0} bytes unpacked`)
+// 校验关键文件是否出现在 tarball 清单里（缺失即失败）
+const REQUIRED_IN_PACK = [
+  'LICENSE',            // MIT 许可必须随包
+  'dist/index.js',      // host 半身
+  'dist/client.js',     // web client 半身
+  'dist/typert.host.js',
+  'src/index.ts',       // 源码随包（可审查）
+  'src/client.js',
+  'cordis.patch.yml',   // dsh 装配 patch
+  'package.json',
+]
+const missing = REQUIRED_IN_PACK.filter((f) => !packed.includes(f))
+if (missing.length) {
+  fail(`tarball 清单缺少关键文件: ${missing.join(', ')} — 检查 package.json files 字段`)
+}
+ok(`tarball 清单核对通过（${REQUIRED_IN_PACK.length}/${packed.length} 个关键文件全部包含）`)
 
 if (DRY) {
   console.log('\n[--dry-run] 到此为止，未发布、未打 tag。')
