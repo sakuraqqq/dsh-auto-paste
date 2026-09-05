@@ -108,9 +108,9 @@ describe('static regression guards — past bugs must not resurrect', () => {
     assert.deepEqual(pkg.dsh.client.inject, ['sessions', 'connection'])
   })
 
-  test('package.json depends on @deepseek-ai/dsh-typert-protocol', () => {
+  test('package.json peer-depends on @deepseek-ai/dsh-typert-protocol', () => {
     const pkg = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8'))
-    assert.ok(pkg.dependencies['@deepseek-ai/dsh-typert-protocol'])
+    assert.ok(pkg.peerDependencies['@deepseek-ai/dsh-typert-protocol'])
   })
 
   test('src/index.ts PasteStoreService extends TypertRemoteService', () => {
