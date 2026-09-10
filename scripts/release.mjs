@@ -45,11 +45,19 @@ const VERSION_RE = /^\d+\.\d+\.\d+$/
 // ── 工具函数 ─────────────────────────────────────────────
 const log = (m) => console.log(`\n◆ ${m}`)
 const ok = (m) => console.log(`  ✓ ${m}`)
-const fail = (m) => { console.error(`  ✗ ${m}`); process.exit(1) }
+const fail = (m) => {
+  console.error(`  ✗ ${m}`)
+  process.exit(1)
+}
 
 function sh(cmd, { silent = false } = {}) {
   try {
-    const out = execSync(cmd, { cwd: ROOT, encoding: 'utf8', shell: true, stdio: silent ? 'pipe' : 'inherit' })
+    const out = execSync(cmd, {
+      cwd: ROOT,
+      encoding: 'utf8',
+      shell: true,
+      stdio: silent ? 'pipe' : 'inherit',
+    })
     return (out || '').trim()
   } catch (e) {
     if (!silent) fail(`命令失败: ${cmd}\n${e.stderr || e.message}`)
@@ -127,16 +135,18 @@ log('阶段 5/9  npm pack --dry-run 发布清单核对')
 const packJson = sh('npm pack --dry-run --json', { silent: true })
 const packMeta = JSON.parse(packJson)
 const packed = packMeta?.[0]?.files?.map((f) => f.path) ?? []
-console.log(`${packMeta?.[0]?.filename ?? '(unknown tgz)'} — ${packed.length} files, ${packMeta?.[0]?.unpackedSize ?? 0} bytes unpacked`)
+console.log(
+  `${packMeta?.[0]?.filename ?? '(unknown tgz)'} — ${packed.length} files, ${packMeta?.[0]?.unpackedSize ?? 0} bytes unpacked`,
+)
 // 校验关键文件是否出现在 tarball 清单里（缺失即失败）
 const REQUIRED_IN_PACK = [
-  'LICENSE',            // MIT 许可必须随包
-  'dist/index.js',      // host 半身
-  'dist/client.js',     // web client 半身
+  'LICENSE', // MIT 许可必须随包
+  'dist/index.js', // host 半身
+  'dist/client.js', // web client 半身
   'dist/typert.host.js',
-  'src/index.ts',       // 源码随包（可审查）
+  'src/index.ts', // 源码随包（可审查）
   'src/client.js',
-  'cordis.patch.yml',   // dsh 装配 patch
+  'cordis.patch.yml', // dsh 装配 patch
   'package.json',
 ]
 const missing = REQUIRED_IN_PACK.filter((f) => !packed.includes(f))
@@ -178,8 +188,16 @@ log('阶段 8/9  GitHub Release（gh CLI 可选）')
 let ghNote = ''
 try {
   const changelog = sh(`git log --oneline v${current}..HEAD`, { silent: true })
-  if (changelog) ghNote = 'Changelog:\n' + changelog.split('\n').map((l) => '  ' + l).join('\n')
-} catch { /* 无上个 tag 或空，忽略 */ }
+  if (changelog)
+    ghNote =
+      'Changelog:\n' +
+      changelog
+        .split('\n')
+        .map((l) => '  ' + l)
+        .join('\n')
+} catch {
+  /* 无上个 tag 或空，忽略 */
+}
 try {
   sh('gh auth status', { silent: true })
   const notes = `Release ${target}\n\n${ghNote || '（无 changelog）'}`
@@ -194,7 +212,11 @@ try {
 // ── 阶段 9: 发布后验证 ──────────────────────────────────
 log('阶段 9/9  发布后验证')
 let live = ''
-try { live = await sh(`npm view ${PKG_NAME} version`, { silent: true }) } catch { /* 暂不可查 */ }
+try {
+  live = await sh(`npm view ${PKG_NAME} version`, { silent: true })
+} catch {
+  /* 暂不可查 */
+}
 if (live === target) {
   ok(`线上版本确认: ${PKG_NAME}@${live} ✅`)
 } else {

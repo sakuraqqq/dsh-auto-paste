@@ -30,32 +30,81 @@ window.__ModuleLoader__.load({
     // Wait until the connection carrier and the sessions runtime are live.
     const inject = ['sessions', 'connection']
 
-    /** Is this paste target the dsh composer textarea? */
-    function isComposerTextarea(target) {
-      if (!target || target.tagName !== 'TEXTAREA') return false
-      // The composer textarea carries data-phase (input phase) and sits
-      // inside the input scroll wrapper ([data-input-scroll]).
+    /**
+     * Is this paste target the dsh composer surface?
+     * dsh <= 0.1.1 rendered the composer as a <textarea>; dsh >= 0.1.5 renders
+     * it as a Lexical contenteditable div (dsh-client-ui-conversation's
+     * ComposerContentEditable). Both carry `data-phase` and sit inside the
+     * input scroll wrapper ([data-input-scroll]), so key on editable-ness plus
+     * those anchors instead of the tag name alone — otherwise every paste on
+     * the new composer early-returns silently.
+     */
+    function isComposerTarget(target) {
+      if (!target || target.nodeType !== 1) return false
+      const editable = target.tagName === 'TEXTAREA' || target.isContentEditable === true
+      if (!editable) return false
       if (target.hasAttribute('data-phase')) return true
       return target.closest('[data-input-scroll]') !== null
     }
 
     /**
-     * Insert text at the caret. execCommand('insertText') fires the input
-     * event React listens to, so the controlled draft updates like a normal
-     * paste. setRangeText is the fallback for engines without insertText.
+     * Fallback insertion for a contenteditable composer: splice a text node at
+     * the live selection and emit a bubbling input event so editor listeners
+     * (Lexical's beforeinput/input pipeline) stay in sync. Only reached when
+     * execCommand('insertText') did not take.
+     */
+    function insertIntoContentEditable(target, text) {
+      const selection = window.getSelection()
+      if (!selection || selection.rangeCount === 0) return false
+      const range = selection.getRangeAt(0)
+      if (!target.contains(range.commonAncestorContainer)) return false
+      range.deleteContents()
+      const node = document.createTextNode(text)
+      range.insertNode(node)
+      range.setStartAfter(node)
+      range.collapse(true)
+      selection.removeAllRanges()
+      selection.addRange(range)
+      try {
+        target.dispatchEvent(
+          new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }),
+        )
+      } catch {
+        target.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      return true
+    }
+
+    /**
+     * execCommand('insertText') — the one insertion primitive that works for
+     * both the legacy <textarea> and the current contenteditable composer (it
+     * fires the input event the composer listens to). Returns false when the
+     * API is unavailable or refused the insertion.
+     */
+    function insertViaExecCommand(text) {
+      try {
+        return document.execCommand('insertText', false, text) === true
+      } catch {
+        return false
+      }
+    }
+
+    /**
+     * Insert text at the caret. execCommand is the primary path; setRangeText
+     * covers textarea/input engines without it; the Selection API covers the
+     * contenteditable composer when execCommand is unavailable.
      */
     function insertTextAtCaret(target, text) {
       target.focus()
-      let inserted = false
-      try {
-        inserted = document.execCommand('insertText', false, text)
-      } catch {
-        inserted = false
-      }
+      let inserted = insertViaExecCommand(text)
       if (!inserted && typeof target.setRangeText === 'function') {
         const start = target.selectionStart ?? target.value.length
         const end = target.selectionEnd ?? start
         target.setRangeText(text, start, end, 'end')
+        inserted = true
+      }
+      if (!inserted && target.isContentEditable === true) {
+        insertIntoContentEditable(target, text)
       }
     }
 
@@ -71,9 +120,8 @@ window.__ModuleLoader__.load({
           controller.signal,
         )
         if (result && result.ok && result.value) return result.value
-        const detail = result && result.error
-          ? `${result.error.code}: ${result.error.message}`
-          : 'unknown error'
+        const detail =
+          result && result.error ? `${result.error.code}: ${result.error.message}` : 'unknown error'
         throw new Error(`savePaste failed: ${detail}`)
       } finally {
         clearTimeout(timer)
@@ -81,15 +129,16 @@ window.__ModuleLoader__.load({
     }
 
     function apply(ctx, config = {}) {
-      const minChars = typeof config.minChars === 'number' && config.minChars > 0
-        ? config.minChars
-        : DEFAULT_MIN_CHARS
+      const minChars =
+        typeof config.minChars === 'number' && config.minChars > 0
+          ? config.minChars
+          : DEFAULT_MIN_CHARS
       const sessions = ctx.sessions
       const connection = ctx.connection
 
       const onPaste = (event) => {
         const target = event.target
-        if (!isComposerTextarea(target)) return
+        if (!isComposerTarget(target)) return
         const clipboard = event.clipboardData
         if (!clipboard) return
         const text = clipboard.getData('text/plain')
@@ -98,7 +147,9 @@ window.__ModuleLoader__.load({
         // Hardening: if the injected services never arrived, warn loudly and
         // fall back to plain paste instead of a silent TypeError mid-listener.
         if (!sessions || !connection) {
-          console.warn(`[${PACKAGE}] sessions/connection services unavailable — large paste falls back to raw text (check dsh.client.inject in package.json, restart dsh, hard-refresh)`)
+          console.warn(
+            `[${PACKAGE}] sessions/connection services unavailable — large paste falls back to raw text (check dsh.client.inject in package.json, restart dsh, hard-refresh)`,
+          )
           return
         }
 
