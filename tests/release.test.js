@@ -8,7 +8,14 @@ import { join } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
-import { pasteFilename, savePasteTo, resolveWorkspaceDir, isRegisteredWorkspace, assertPasteSize, MAX_PASTE_BYTES } from '../dist/index.js'
+import {
+  pasteFilename,
+  savePasteTo,
+  resolveWorkspaceDir,
+  isRegisteredWorkspace,
+  assertPasteSize,
+  MAX_PASTE_BYTES,
+} from '../dist/index.js'
 
 const PKG_ROOT = fileURLToPath(new URL('..', import.meta.url))
 
@@ -117,6 +124,15 @@ describe('static regression guards — past bugs must not resurrect', () => {
     const src = readFileSync(join(PKG_ROOT, 'src', 'index.ts'), 'utf8')
     assert.match(src, /class PasteStoreService extends TypertRemoteService/)
   })
+
+  test('src/client.js composer detection covers textarea AND the Lexical contenteditable composer', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+    const start = src.indexOf('function isComposerTarget')
+    assert.ok(start >= 0, 'isComposerTarget must exist in src/client.js')
+    const body = src.slice(start, start + 400)
+    assert.match(body, /TEXTAREA/, 'legacy <textarea> composer must still match')
+    assert.match(body, /isContentEditable/, 'dsh >= 0.1.5 contenteditable composer must match')
+  })
 })
 
 describe('savePasteTo — concurrent same-timestamp saves (atomic, no TOCTOU)', () => {
@@ -128,9 +144,17 @@ describe('savePasteTo — concurrent same-timestamp saves (atomic, no TOCTOU)', 
       for (let round = 0; round < 10; round += 1) {
         const results = await Promise.all(contents.map((c) => savePasteTo(dir, c, now)))
         const unique = new Set(results.map((r) => r.path)).size
-        assert.equal(unique, contents.length, `round ${round}: every concurrent save must own a distinct file`)
+        assert.equal(
+          unique,
+          contents.length,
+          `round ${round}: every concurrent save must own a distinct file`,
+        )
         for (let i = 0; i < contents.length; i += 1) {
-          assert.equal(await readFile(join(dir, results[i].path), 'utf8'), contents[i], `round ${round} content ${i}`)
+          assert.equal(
+            await readFile(join(dir, results[i].path), 'utf8'),
+            contents[i],
+            `round ${round} content ${i}`,
+          )
         }
       }
     } finally {
@@ -201,4 +225,3 @@ describe('assertPasteSize / maxBytes — oversized pastes rejected before touchi
     }
   })
 })
-

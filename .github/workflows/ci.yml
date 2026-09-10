@@ -1,0 +1,61 @@
+# ci.yml — dsh-auto-paste 质量门（防屎山 P3）
+#
+# 门禁链：install → typecheck → build(host) → build:client → 产物=源码 → lint → format:check
+#         → metrics（超限必须为 0）→ test → smoke
+#
+# 说明：
+#   - 依赖用 pnpm（仓库有 pnpm-lock.yaml）。`pnpm-workspace.yaml` 的 minimumReleaseAgeExclude
+#     是 0.1.5-rc.1 这批「刚发布」的包过 minimumReleaseAge 供应链策略所必需，随仓库提交。
+#   - `metrics` 是硬门禁：超限函数数 > 0 或存在解析失败文件即 exit 1（见 tools/metrics.mjs）。
+#   - 产物一致性：dist/ 与 lib/ 是入库产物（dsh loader 读 dist/，super-injector 读 lib/），
+#     构建后必须与源码一致——`git diff --exit-code` 非零即视为「产物落后于源码」。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (host halves)
+        run: pnpm run typecheck
+
+      - name: Build (host + client)
+        run: pnpm run build && pnpm run build:client
+
+      - name: Build artifacts must match sources (dist/ + lib/)
+        run: git diff --exit-code -- dist lib
+
+      - name: Lint (ESLint)
+        run: pnpm run lint
+
+      - name: Format check (Prettier)
+        run: pnpm run format:check
+
+      - name: Metrics gate (over-limit functions must be 0)
+        run: pnpm run metrics
+
+      - name: Tests (node --test)
+        run: pnpm test
+
+      - name: Smoke
+        run: node smoke.mjs

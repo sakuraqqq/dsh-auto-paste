@@ -18,7 +18,9 @@ const pairs = [
 for (const [from, to] of pairs) {
   const src = join(root, from)
   if (!existsSync(src)) {
-    console.error(`sync-lib: missing ${from} — run tsc build first (npm run build skips tsc if you call it directly)`)
+    console.error(
+      `sync-lib: missing ${from} — run tsc build first (npm run build skips tsc if you call it directly)`,
+    )
     continue
   }
   const dest = join(root, to)
