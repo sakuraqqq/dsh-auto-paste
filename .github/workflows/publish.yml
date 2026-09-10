@@ -1,0 +1,76 @@
+# publish.yml — 用 npm Trusted Publisher（OIDC）自动发布（免 token / 免 OTP）
+#
+# 触发：推送 v* 标签（例：git tag v0.1.4 && git push origin v0.1.4）
+#
+# 关键前提（缺一不可，且 npm 侧保存时**不校验**，错了只在发布时才报错）：
+#   1) npmjs.com → 该包 → Settings → Trusted publishing → 添加 GitHub Actions：
+#        Organization or user = sakuraqqq
+#        Repository           = dsh-auto-paste
+#        Workflow filename    = publish.yml   ← 必须与本文件名逐字符一致（含 .yml，大小写敏感）
+#        Allowed actions      = 必须**显式允许 `npm publish`**
+#          ⚠️ 2026-09-03 之后新建的 trusted publisher 默认**只允许 `npm stage publish`**；
+#             不勾上「允许 npm publish」，本 workflow 会被拒。
+#   2) 本 workflow 必须有 `id-token: write`（OIDC 必需）。
+#   3) npm CLI ≥ 11.5.1 且 Node ≥ 22.14（本文件用 Node 24）。
+#   4) package.json 的 `repository.url` 必须与 GitHub 仓库一致（sakuraqqq/dsh-auto-paste）。
+#
+# 说明：
+#   - OIDC 下 npm **自动生成 provenance**（公开仓库 + 公开包），无需 `--provenance`。
+#   - 默认发 dist-tag `next`，沿用本项目「先 next 观察 ≥3 天再转正」纪律；
+#     转正由维护者人工执行：`npm dist-tag add dsh-auto-paste@<ver> latest`
+#     （npm 的 `dist-tag add` 不支持 OIDC，必须人工带 2FA —— 这是设计如此，不是缺陷。）
+#   - 发布前跑与 ci.yml 同款质量门，并校验「tag 号 == package.json version」。
+name: publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  id-token: write # OIDC：Trusted Publisher 必需
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false # 发布构建不做依赖缓存（npm 官方建议）
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Quality gates (same set as ci.yml)
+        run: |
+          pnpm run typecheck
+          pnpm run build
+          pnpm run build:client
+          pnpm run lint
+          pnpm run format:check
+          pnpm run metrics
+          pnpm test
+          node smoke.mjs
+
+      - name: Build artifacts must match sources (dist/ + lib/)
+        run: git diff --exit-code -- dist lib
+
+      - name: Verify tag matches package.json version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          echo "tag=$TAG  package.json=$PKG"
+          test "$TAG" = "$PKG"
+
+      - name: Publish to npm (OIDC trusted publishing)
+        run: npm publish --tag next

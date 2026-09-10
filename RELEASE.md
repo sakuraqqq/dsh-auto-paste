@@ -5,6 +5,8 @@
 > 发布标准：**全自动 E2E 通过**。半自动方案（save_paste 兜底）不发布。
 > **已发布**：dsh-auto-paste@0.1.0（2026-08-16，官方源 registry.npmjs.org，dist-tag `next`，GitHub 源仓库 https://github.com/sakuraqqq/dsh-auto-paste tag v0.1.0）。
 > **0.1.2 已发布**（2026-08-17，官方源，`latest: 0.1.2`、`next: 0.1.1`）——README latest 安装方式、repository/homepage 元数据。剩余：release notes（网页补）、阶段 A 正式验收、awesome-dsh-plugin 提交、观察期第 3 天汇总。
+> **0.1.3 已发布**（2026-09-10，官方源，dist-tag `next`）——适配 **dsh 0.1.5-rc.1**：composer 由 `<textarea>` 改为 Lexical `contenteditable` 导致大段粘贴静默失效，已修 client 判定与插入路径；依赖线升 `0.1.5-rc.1`；首落 P1/P2/P3 质量门（eslint+prettier · `tools/metrics.mjs` 复杂度硬门禁 · GitHub Actions CI）。发布后核验：`versions` 含 `0.1.3`、`next=0.1.3`、shasum `a7831365fec080ca02c1bfc31614ecd37285bea9`（与本地打包一致）、tag `v0.1.3` → commit `d8c5a60`。**转正待 ≥3 天观察期**。
+> **0.1.3 转正动作（待观察期结束）**：`npm dist-tag add dsh-auto-paste@0.1.3 latest --registry https://registry.npmjs.org/`
 
 ## 0. 观察期并行检查（自用期间顺手做，第 3 天汇总）
 
