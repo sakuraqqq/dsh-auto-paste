@@ -4,3 +4,8 @@ node_modules/
 .pnpm-cache/
 pastes/
 *.tgz
+
+# 内部/交接文档：天然含本地环境信息（工作区/快照绝对路径等），不进公开仓库
+# （已跟踪的历史文档已做占位符化处理；本规则约束今后新增者）
+HANDOFF-*.md
+DEV-NOTES.md
