@@ -9,9 +9,9 @@
 
 ## 1. 环境信息（按实际路径替换）
 
-- 插件目录：`C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-trial\dsh-auto-paste`
-- dsh CLI：`C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-trial\node_modules\.bin\dsh.cmd`
-- 体检脚本：`C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-trial\workspace\_tools\plugin-preflight.mjs`
+- 插件目录：`<旧实验环境>\dsh-auto-paste`
+- dsh CLI：`<旧实验环境>\node_modules\.bin\dsh.cmd`
+- 体检脚本：`<旧实验环境>\workspace\_tools\plugin-preflight.mjs`
 - 注意：**不要装进主 web profile**（会干扰当前运行环境）。实测用独立 profile：`dsh plugin --profile <测试用profile名> add file:<插件目录>`（profile 不存在会自动建）
 
 ## 2. 测试阶段

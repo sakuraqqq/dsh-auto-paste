@@ -17,7 +17,7 @@
 ## 2. 项目与账号（留档）
 
 - 插件目录：`...\work\dsh-trial\dsh-auto-paste`（独立 git 仓库，在工作区 `chajian\` 兄弟目录，编辑需越界写权限）
-- npm 包：`dsh-auto-paste`（maintainer: misakamaster <38662110@qq.com>）
+- npm 包：`dsh-auto-paste`（maintainer: misakamaster）
 - GitHub 仓库：https://github.com/sakuraqqq/dsh-auto-paste
 - 许可：MIT · node `^22.19.0 || >=24.0.0`
 

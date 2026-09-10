@@ -8,7 +8,7 @@
 dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保存为工作区 `pastes/<时间戳>.txt`** 并在消息里引用路径（效果参考 Chatbox 的"贴一大段 → 自动生成附件文件"）。另有 `save_paste` 工具兜底（模型主动调用）。
 
 - 版本 0.1.0，dsh 0.1.0-rc.6
-- 位置：`C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-trial\dsh-auto-paste`
+- 位置：`<旧实验环境>\dsh-auto-paste`
 - git：独立仓库（从 workspace 仓库迁出，历史见 workspace 仓库 25c4a2a 等提交）
 
 ## 2. 技术架构

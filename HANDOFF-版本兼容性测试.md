@@ -23,9 +23,9 @@
 
 | 项 | 值 |
 |---|---|
-| 插件目录 | `C:\Users\测试\dsh-workspace\dsh-auto-paste` |
-| rc8 实验 dsh CLI | `C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-rc8\node_modules\.bin\dsh.cmd` |
-| rc8 实验 DSH_HOME | `C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-rc8\.dsh-sophnet` |
+| 插件目录 | `<工作区>` |
+| rc8 实验 dsh CLI | `<rc8实验环境>\node_modules\.bin\dsh.cmd` |
+| rc8 实验 DSH_HOME | `<rc8实验环境>\.dsh-sophnet` |
 | rc8 内 dsh 版本 | **0.1.1-rc.2**（`…\dsh-rc8\node_modules\@deepseek-ai\dsh\package.json` `version`；`rc8` 只是实验目录名，并非更新版本） |
 | 测试 profile | `autopaste-test`（全新，自动创建；**绝不装进 sophnet / 主 web）** |
 
@@ -35,14 +35,14 @@
 
 ### 步骤 0：前置确认（只读）
 ```powershell
-git -C "C:\Users\测试\dsh-workspace\dsh-auto-paste" rev-parse HEAD   # 期望 = 基线 18abcb5…
+git -C "<工作区>" rev-parse HEAD   # 期望 = 基线 18abcb5…
 # 读 rc8 内 dsh 版本，期望 0.1.1-rc.2
-Get-Content "C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-rc8\node_modules\@deepseek-ai\dsh\package.json"
+Get-Content "<rc8实验环境>\node_modules\@deepseek-ai\dsh\package.json"
 ```
 
 ### 步骤 1：构建插件（确保 dist/ 最新）
 ```powershell
-Set-Location "C:\Users\测试\dsh-workspace\dsh-auto-paste"
+Set-Location "<工作区>"
 npm run typecheck   # exit 0
 npm run build       # tsc → dist/ + sync lib/；dist/ 更新
 ```
@@ -50,21 +50,21 @@ npm run build       # tsc → dist/ + sync lib/；dist/ 更新
 
 ### 步骤 2：用 rc8 的 dsh 建独立测试 profile 并装插件
 ```powershell
-$env:DSH_HOME = "C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-rc8\.dsh-sophnet"
-& "C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-rc8\node_modules\.bin\dsh.cmd" plugin --profile autopaste-test add file:"C:\Users\测试\dsh-workspace\dsh-auto-paste"
+$env:DSH_HOME = "<rc8实验环境>\.dsh-sophnet"
+& "<rc8实验环境>\node_modules\.bin\dsh.cmd" plugin --profile autopaste-test add file:"<工作区>"
 ```
 > 用绝对 `file:` 路径，规避「相对路径锚定调用目录」的坑。
 
 ### 步骤 3：dump-config 检查配置层（证明插件被 dsh 识别）
 ```powershell
-$env:DSH_HOME = "C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-rc8\.dsh-sophnet"
-& "C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-rc8\node_modules\.bin\dsh.cmd" --profile autopaste-test --dump-config
+$env:DSH_HOME = "<rc8实验环境>\.dsh-sophnet"
+& "<rc8实验环境>\node_modules\.bin\dsh.cmd" --profile autopaste-test --dump-config
 # 期望：输出里出现 dsh-auto-paste 相关配置行
 ```
 
 ### 步骤 4：核心判据 —— 版本线是否冲突（两�份 dsh-tools？）
 ```powershell
-$env:DSH_HOME = "C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-rc8\.dsh-sophnet"
+$env:DSH_HOME = "<rc8实验环境>\.dsh-sophnet"
 Set-Location "$env:DSH_HOME\profiles\autopaste-test"
 pnpm why @deepseek-ai/dsh-tools
 pnpm ls @deepseek-ai/dsh-tools
@@ -75,8 +75,8 @@ pnpm ls @deepseek-ai/dsh-tools
 
 ### 步骤 5：host 加载 + 工具列出（可选，无 key 也可验加载/列表/事件）
 ```powershell
-$env:DSH_HOME = "C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-rc8\.dsh-sophnet"
-& "C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-rc8\node_modules\.bin\dsh.cmd" --profile autopaste-test "run a probe"   # 观察 [dsh-auto-paste] host ready ... listed=true
+$env:DSH_HOME = "<rc8实验环境>\.dsh-sophnet"
+& "<rc8实验环境>\node_modules\.bin\dsh.cmd" --profile autopaste-test "run a probe"   # 观察 [dsh-auto-paste] host ready ... listed=true
 ```
 > 若 GUI 不可用，跳过本步并在记录里注明「未实测 GUI」。核心deciding证据以步骤 4 为准。
 

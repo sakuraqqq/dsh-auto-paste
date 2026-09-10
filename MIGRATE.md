@@ -5,8 +5,8 @@
 ## 迁移信息
 
 - **迁移日期**：2026-08-22
-- **来源目录**：`C:\Users\测试\Documents\Codex\2026-08-13\deepseekharness-https-www-npmjs-com-package\work\dsh-trial\dsh-auto-paste`（旧，已冻结）
-- **目标目录**：`C:\Users\测试\dsh-workspace\dsh-auto-paste`（新工作区）
+- **来源目录**：`<旧实验环境>\dsh-auto-paste`（旧，已冻结）
+- **目标目录**：`<工作区>`（新工作区）
 - **迁移方式**：全量复制（含 .git 历史），排除 node_modules/pastes/缓存/旧包体
 - **git 基线**：commit `4356821`（release 脚本 --json 校验升级 + lib/ 入库）
 - **SHA 核验**：13 个关键文件新旧一致（2026-08-22 实测）
