@@ -19,15 +19,62 @@ import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 // Plugin display name, shown in loader diagnostics.
 export const name = 'dsh-auto-paste';
-/** Windows-safe timestamp filename: 20260815-103000.txt (no colons). */
-export function pasteFilename(now = new Date()) {
+/** Longest accepted `label` (chars) — keeps names far below path limits. */
+export const MAX_LABEL_CHARS = 32;
+/** `label` charset: ASCII word chars, dash and underscore only (filename-safe). */
+const LABEL_PATTERN = /^[A-Za-z0-9_-]+$/;
+/**
+ * Validate a paste `label` for use inside a filename. Whitelist-only, so a label
+ * can never inject a path separator, a drive letter, a dot-directory or an
+ * extension. Throws a descriptive error on any violation; never rewrites
+ * silently, so the caller always sees the bad input.
+ */
+export function sanitizeLabel(raw) {
+    if (typeof raw !== 'string' || raw.length === 0) {
+        throw new Error(`label must be a non-empty ASCII string (got ${JSON.stringify(raw)})`);
+    }
+    if (raw.length > MAX_LABEL_CHARS) {
+        throw new Error(`label too long: ${raw.length} chars exceeds the ${MAX_LABEL_CHARS}-char limit (got ${JSON.stringify(raw)})`);
+    }
+    if (!LABEL_PATTERN.test(raw)) {
+        throw new Error(`label may only contain [A-Za-z0-9_-] (got ${JSON.stringify(raw)})`);
+    }
+    return raw;
+}
+/**
+ * Windows-safe timestamp filename: `20260815-103000.txt`, or
+ * `20260815-103000-<label>.txt` when a label is given. The label is
+ * re-validated here — the write path never trusts an upstream check alone.
+ */
+export function pasteFilename(now = new Date(), label) {
     const pad = (n) => String(n).padStart(2, '0');
     const d = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
     const t = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}${String(now.getMilliseconds()).padStart(3, '0')}`;
-    return `${d}-${t}.txt`;
+    return label === undefined ? `${d}-${t}.txt` : `${d}-${t}-${sanitizeLabel(label)}.txt`;
 }
-/** Max UTF-8 bytes a single paste may occupy (1 MiB). */
+/** Default max UTF-8 bytes a single paste may occupy (1 MiB). */
 export const MAX_PASTE_BYTES = 1024 * 1024;
+/** Hard ceiling for the configurable `maxBytes` (64 MiB). */
+export const MAX_PASTE_BYTES_CAP = 64 * 1024 * 1024;
+/**
+ * Resolve the configured `maxBytes`: `undefined` falls back to the default,
+ * anything else must be a positive integer within the hard ceiling. Throws on
+ * violation so the caller decides (boot logs it, then falls back to default).
+ */
+export function resolveMaxBytes(raw) {
+    if (raw === undefined)
+        return MAX_PASTE_BYTES;
+    if (typeof raw !== 'number' || !Number.isInteger(raw)) {
+        throw new Error(`maxBytes must be an integer (got ${JSON.stringify(raw)})`);
+    }
+    if (raw <= 0) {
+        throw new Error(`maxBytes must be positive (got ${raw})`);
+    }
+    if (raw > MAX_PASTE_BYTES_CAP) {
+        throw new Error(`maxBytes ${raw} exceeds the ${MAX_PASTE_BYTES_CAP}-byte hard ceiling`);
+    }
+    return raw;
+}
 /**
  * Guard against oversized pastes (resource-exhaustion vector): the web client
  * applies its own 500-char floor, but the RPC and the model tool can be called
@@ -41,12 +88,13 @@ export function assertPasteSize(text, maxBytes = MAX_PASTE_BYTES) {
     }
 }
 /**
- * Write one paste under <workspaceDir>/pastes/<timestamp>.txt.
+ * Write one paste under `<workspaceDir>/pastes/<timestamp>[-<label>].txt`.
  * Pure standalone function — unit-testable without a booted harness.
+ * Same-second collisions append `-<n>` AFTER the label (see the loop below).
  */
-export async function savePasteTo(workspaceDir, text, now = new Date(), maxBytes = MAX_PASTE_BYTES) {
+export async function savePasteTo(workspaceDir, text, now = new Date(), maxBytes = MAX_PASTE_BYTES, label) {
     assertPasteSize(text, maxBytes);
-    const rel = join('pastes', pasteFilename(now));
+    const rel = join('pastes', pasteFilename(now, label));
     const base = join(workspaceDir, rel);
     await mkdir(dirname(base), { recursive: true });
     // Atomic exclusive create: EEXIST means another writer (concurrent
@@ -101,22 +149,33 @@ export function isRegisteredWorkspace(dir, workspaces) {
 }
 /** Host service the web client calls via the connection RPC (`/api`). */
 class PasteStoreService extends TypertRemoteService {
-    constructor(ctx) {
+    /** Effective byte ceiling for one paste (resolved once at boot). */
+    maxBytes;
+    constructor(ctx, maxBytes) {
         super(ctx, 'pasteStore');
+        this.maxBytes = maxBytes;
     }
     /** Save one pasted text chunk into the session workspace's pastes/ dir. */
     async savePaste(text, sessionId) {
         const dir = resolveWorkspaceDir(this.ctx, sessionId);
         if (dir === undefined)
             throw new Error('pasteStore: no workspace available to save the paste into');
-        return savePasteTo(dir, text);
+        return savePasteTo(dir, text, new Date(), this.maxBytes);
     }
 }
 // Wait until the host's tool registry (ctx.tools) is ready before running.
 export const inject = ['tools'];
 export function apply(ctx, config = {}) {
     const minChars = typeof config.minChars === 'number' && config.minChars > 0 ? config.minChars : 500;
-    new PasteStoreService(ctx);
+    // An invalid maxBytes must never pass silently: log it, then fall back to the default.
+    let maxBytes = MAX_PASTE_BYTES;
+    try {
+        maxBytes = resolveMaxBytes(config.maxBytes);
+    }
+    catch (error) {
+        console.error(`[dsh-auto-paste] invalid maxBytes in config — falling back to ${MAX_PASTE_BYTES} bytes:`, error);
+    }
+    new PasteStoreService(ctx, maxBytes);
     ctx.tools.register(defineTool({
         // The name the model uses to call this tool.
         name: 'save_paste',
@@ -131,7 +190,7 @@ export function apply(ctx, config = {}) {
             },
             label: {
                 type: 'string',
-                description: 'Optional short label appended after the timestamp in the filename (unused for now).',
+                description: 'Optional short label appended after the timestamp in the filename: pastes/<timestamp>-<label>.txt. ASCII [A-Za-z0-9_-], max 32 chars; an invalid label fails the call.',
             },
         },
         output: {
@@ -165,9 +224,9 @@ export function apply(ctx, config = {}) {
             if (!isRegisteredWorkspace(dir, registered)) {
                 throw new Error(`save_paste: refusing to write outside a registered workspace (${dir})`);
             }
-            return savePasteTo(dir, args.text);
+            return savePasteTo(dir, args.text, new Date(), maxBytes, args.label);
         },
     }));
     // Self-check (spike-proven): confirm the tool actually landed in the registry.
-    console.log(`[dsh-auto-paste] host ready — pasteStore service + save_paste tool listed=${ctx.tools.get('save_paste') !== undefined} (minChars=${minChars})`);
+    console.log(`[dsh-auto-paste] host ready — pasteStore service + save_paste tool listed=${ctx.tools.get('save_paste') !== undefined} (minChars=${minChars}, maxBytes=${maxBytes})`);
 }

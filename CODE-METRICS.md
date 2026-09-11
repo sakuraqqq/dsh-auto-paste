@@ -1,6 +1,6 @@
 # CODE-METRICS.md — dsh-auto-paste 代码度量报告（防屎山 P2）
 
-> 生成命令：`npm run metrics`（node tools/metrics.mjs）；生成时间：2026-09-10T12:43:33.909Z
+> 生成命令：`npm run metrics`（node tools/metrics.mjs）；生成时间：2026-09-11T16:35:26.352Z
 > 度量对象：`src/**/*.js`（web client 半身）+ `scripts/**/*.mjs` + `smoke.mjs`；`src/*.ts` 由 tsc 守门、`tests/` 自证、构建产物不度量。
 > 阈值：圈复杂度 ≤10、认知复杂度 ≤15（超限 = 红名单，metrics exit 1）。
 
