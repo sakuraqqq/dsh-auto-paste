@@ -84,3 +84,18 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
 
 ### 8.3 上架 awesome-dsh-plugin 的「收录三件套」精度
 - 提交 PR 前用**官方脚本同款逻辑**重新生成 README（中英两份）+ YAML 条目，验证到「与线上只差自己那一条目」的精度，CI（Entries look good）即一次通过。
+
+### 8.4 PowerShell 写文本默认 ANSI —— .gitignore 中文 pattern 失效（2026-09-12）
+- **现象**：`Add-Content .gitignore "TASK-20260910-功能批次1-AB.md"` 之后，`git check-ignore -v` **无输出**、`git status` 仍把该文件列为未跟踪；`.gitignore` 变成**非法 UTF-8**（`read` 工具直接报 `invalid UTF-8 text`）。
+- **根因**：Windows PowerShell 的 `Add-Content`/`Set-Content` **默认按 ANSI(GBK) 写**，中文文件名被落成 8 个 GBK 字节（`B9 A6 C4 DC C5 FA B4 CE` = 「功能批次」），而真实文件名是 UTF-8 —— pattern 与文件名不相等，忽略规则自然不生效。
+- **防再犯**：
+  1. 配置/文本文件里的 pattern/键名**能 ASCII 就 ASCII**（写 `TASK-*.md` 通配，而不是把中文文件名原样写进 `.gitignore`）；
+  2. 必须写非 ASCII 时**别用裸 `Add-Content`/`Set-Content`**：改用文件编辑工具，或 `[System.IO.File]::AppendAllText($p,$t,(New-Object System.Text.UTF8Encoding($false)))`（显式 UTF-8 **无 BOM**；PS 5.1 的 `-Encoding utf8` 会带 BOM，可能反过来弄坏首行 pattern）；
+  3. 写完**必须回读校验**：`git check-ignore -v <file>` 命中 + UTF-8 合法（`read` 工具能读即合法）。
+- **亲缘**：与「改 `.ps1` 丢 BOM 炸启动器」**同族** —— PowerShell 的默认编码不可信；凡涉及非 ASCII 的读写，都要**显式指定编码 + 回读校验**。
+
+### 8.5 给用户终端命令一律单行（2026-09-12）
+- **现象**：给用户的 `gh release create ... \` 用了 **bash 的 `\` 续行**，而对面是 PowerShell（不认 `\` 续行）→ gh 只收到半条命令、转入交互提问，落单的 `\` 还被当成附件路径去上传 → `read \: Incorrect function` 失败。
+- **根因**：跨 shell 的续行符不通用（bash `\` / PowerShell 反引号 `` ` ``）。
+- **防再犯**：给用户的命令**一律写成单行**再贴；确需换行时按对方 shell 选续行符，并说明「整条复制」。
+

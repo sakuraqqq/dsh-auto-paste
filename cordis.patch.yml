@@ -13,3 +13,7 @@
         # Large-paste threshold (chars). The client bundle reads its own row
         # config with the same default; change here, rebuild, reinstall.
         minChars: 500
+        # Byte ceiling for one paste (host-enforced before anything is written).
+        # Default 1048576 (1 MiB); hard ceiling 67108864 (64 MiB) — over that the
+        # host logs an error and falls back to the default. Omit = default.
+        maxBytes: 1048576

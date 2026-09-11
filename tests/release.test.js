@@ -14,7 +14,10 @@ import {
   resolveWorkspaceDir,
   isRegisteredWorkspace,
   assertPasteSize,
+  sanitizeLabel,
+  resolveMaxBytes,
   MAX_PASTE_BYTES,
+  MAX_PASTE_BYTES_CAP,
 } from '../dist/index.js'
 
 const PKG_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -220,6 +223,140 @@ describe('assertPasteSize / maxBytes — oversized pastes rejected before touchi
       const result = await savePasteTo(dir, 'ok', new Date(2026, 7, 15, 23, 1, 0, 0))
       assert.equal(result.chars, 2)
       assert.equal(await readFile(join(dir, result.path), 'utf8'), 'ok')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('sanitizeLabel — filename-safe paste labels', () => {
+  test('accepts ASCII word characters, dash and underscore, up to 32 chars', () => {
+    assert.equal(sanitizeLabel('notes'), 'notes')
+    assert.equal(sanitizeLabel('my-note_01'), 'my-note_01')
+    assert.equal(sanitizeLabel('a'.repeat(32)), 'a'.repeat(32))
+  })
+
+  test('throws a clear error for empty, over-long, non-ASCII and path-ish labels', () => {
+    const bad = [
+      '',
+      '   ',
+      'a'.repeat(33),
+      '中文',
+      'note 1',
+      'a/b',
+      'a\\b',
+      'a:b',
+      'a.b',
+      '..',
+      '../x',
+      'a?b',
+      'a*b',
+      'a\nb',
+    ]
+    for (const value of bad) {
+      assert.throws(
+        () => sanitizeLabel(value),
+        (err) => err instanceof Error && /label/.test(err.message),
+        `expected rejection for ${JSON.stringify(value)}`,
+      )
+    }
+  })
+})
+
+describe('pasteFilename — optional label suffix', () => {
+  const now = new Date(2026, 7, 15, 20, 30, 6, 123)
+
+  test('label is appended after the timestamp', () => {
+    assert.equal(pasteFilename(now, 'notes'), '20260815-203006123-notes.txt')
+  })
+
+  test('without a label the previous shape is unchanged', () => {
+    assert.equal(pasteFilename(now), '20260815-203006123.txt')
+  })
+})
+
+describe('savePasteTo — label lands in the filename', () => {
+  const now = new Date(2026, 7, 15, 20, 30, 6, 123)
+
+  test('the written file carries the label and content is verbatim', async () => {
+    const dir = await tmpDir()
+    try {
+      const result = await savePasteTo(dir, 'hello', now, MAX_PASTE_BYTES, 'notes')
+      assert.equal(result.path, 'pastes/20260815-203006123-notes.txt')
+      assert.equal(
+        await readFile(join(dir, 'pastes', '20260815-203006123-notes.txt'), 'utf8'),
+        'hello',
+      )
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('same second + same label never overwrites: -n is appended AFTER the label', async () => {
+    const dir = await tmpDir()
+    try {
+      const first = await savePasteTo(dir, 'A', now, MAX_PASTE_BYTES, 'notes')
+      const second = await savePasteTo(dir, 'B', now, MAX_PASTE_BYTES, 'notes')
+      assert.equal(first.path, 'pastes/20260815-203006123-notes.txt')
+      assert.equal(second.path, 'pastes/20260815-203006123-notes-1.txt')
+      assert.equal(await readFile(join(dir, first.path), 'utf8'), 'A')
+      assert.equal(await readFile(join(dir, second.path), 'utf8'), 'B')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a label already ending in -1 does not collide with the -n collision suffix', async () => {
+    const dir = await tmpDir()
+    try {
+      const a = await savePasteTo(dir, 'A', now, MAX_PASTE_BYTES, 'note-1')
+      const b = await savePasteTo(dir, 'B', now, MAX_PASTE_BYTES, 'note-1')
+      assert.equal(a.path, 'pastes/20260815-203006123-note-1.txt')
+      assert.equal(b.path, 'pastes/20260815-203006123-note-1-1.txt')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('resolveMaxBytes — configurable cap with a hard ceiling', () => {
+  test('absent config falls back to the default (1 MiB)', () => {
+    assert.equal(MAX_PASTE_BYTES, 1048576)
+    assert.equal(resolveMaxBytes(undefined), MAX_PASTE_BYTES)
+  })
+
+  test('valid values pass through, including the ceiling itself', () => {
+    assert.equal(MAX_PASTE_BYTES_CAP, 67108864)
+    assert.equal(resolveMaxBytes(2048), 2048)
+    assert.equal(resolveMaxBytes(MAX_PASTE_BYTES_CAP), MAX_PASTE_BYTES_CAP)
+  })
+
+  test('non-positive, non-integer, non-number and over-ceiling values throw', () => {
+    const bad = [0, -1, 1.5, '1024', null, true, Number.NaN, MAX_PASTE_BYTES_CAP + 1]
+    for (const value of bad) {
+      assert.throws(
+        () => resolveMaxBytes(value),
+        (err) => err instanceof Error && /maxBytes/.test(err.message),
+        `expected rejection for ${String(value)}`,
+      )
+    }
+  })
+
+  test('a configured maxBytes is enforced before anything is written', async () => {
+    const dir = await tmpDir()
+    try {
+      await assert.rejects(
+        () =>
+          savePasteTo(
+            dir,
+            'x'.repeat(2049),
+            new Date(2026, 7, 15, 23, 2, 0, 0),
+            resolveMaxBytes(2048),
+          ),
+        (err) => err instanceof Error && /paste too large/.test(err.message),
+      )
+      // mkdir never ran: not even pastes/ exists
+      await assert.rejects(() => readFile(join(dir, 'pastes'), 'utf8'))
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
