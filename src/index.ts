@@ -154,18 +154,63 @@ interface WorkspaceRegistryLike {
   list(): WorkspaceLike[]
 }
 
+/** The registered workspaces, or undefined when the host exposes no registry. */
+function registeredWorkspaces(ctx: Context): WorkspaceLike[] | undefined {
+  const registry = ctx.get('workspaceRegistry') as WorkspaceRegistryLike | undefined
+  return registry?.list()
+}
+
 /**
- * Resolve the workspace directory a session belongs to (header-validated
- * membership), falling back to the first registered workspace.
+ * Build the refusal error. Deliberately actionable — it states WHY the write was
+ * refused, WHICH session was involved, EVERY workspace currently registered, and
+ * HOW to recover. It never offers a fallback: silently writing into the wrong
+ * workspace is worse than a visible failure.
+ */
+function workspaceRefusal(reason: string, workspaces: WorkspaceLike[], sessionId?: string): Error {
+  const who =
+    sessionId === undefined ? 'this call carried no session id' : `session "${sessionId}"`
+  const list = workspaces
+    .map((workspace) => {
+      const n = workspace.sessionIds.length
+      return `  - ${workspace.path}  (${n} session${n === 1 ? '' : 's'})`
+    })
+    .join('\n')
+  return new Error(
+    `[dsh-auto-paste] refusing to save the paste: ${reason} (${who}).\n` +
+      `Registered workspaces (${workspaces.length}):\n${list}\n` +
+      'How to fix: paste from a session that belongs to one of those workspaces (a session is ' +
+      'registered to the workspace it was started in), or start a session for the workspace you ' +
+      'want and paste again. Nothing was written.',
+  )
+}
+
+/**
+ * Resolve the workspace directory a session belongs to. STRICT by design:
+ *   - session matched to a workspace       → that path
+ *   - session given but registered nowhere → throws (refuses to guess)
+ *   - no session id, exactly one workspace → that path (unambiguous)
+ *   - no session id, several workspaces    → throws (ambiguous)
+ *   - no registry / no workspaces          → undefined (nothing to route into)
+ * `undefined` therefore means "there is genuinely no workspace to write into";
+ * every "could pick the wrong one" case fails loudly with a recovery hint.
  */
 export function resolveWorkspaceDir(ctx: Context, sessionId?: string): string | undefined {
-  const registry = ctx.get('workspaceRegistry') as WorkspaceRegistryLike | undefined
-  if (registry === undefined) return undefined
-  const workspaces = registry.list()
-  if (workspaces.length === 0) return undefined
+  const workspaces = registeredWorkspaces(ctx)
+  if (workspaces === undefined || workspaces.length === 0) return undefined
   if (sessionId !== undefined) {
     const owned = workspaces.find((workspace) => workspace.sessionIds.includes(sessionId))
     if (owned !== undefined) return owned.path
+    throw workspaceRefusal(
+      'this session is not registered to any workspace, and guessing one could write the paste into the wrong project',
+      workspaces,
+      sessionId,
+    )
+  }
+  if (workspaces.length > 1) {
+    throw workspaceRefusal(
+      'no session id was available, so the target workspace is ambiguous',
+      workspaces,
+    )
   }
   return workspaces[0]?.path
 }
@@ -261,7 +306,7 @@ export function apply(ctx: Context, config: { minChars?: number; maxBytes?: numb
       if (dir === undefined) throw new Error('save_paste: cannot resolve the session workspace directory')
       // Defense: only write inside a registered workspace (header.cwd is
       // dsh-controlled in practice, but never trust it blindly).
-      const registered = (ctx.get('workspaceRegistry') as WorkspaceRegistryLike | undefined)?.list() ?? []
+      const registered = registeredWorkspaces(ctx) ?? []
       if (!isRegisteredWorkspace(dir, registered)) {
         throw new Error(`save_paste: refusing to write outside a registered workspace (${dir})`)
       }

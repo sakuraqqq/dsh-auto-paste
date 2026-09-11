@@ -70,27 +70,50 @@ describe('savePasteTo — write/read-back roundtrip', () => {
   })
 })
 
-describe('resolveWorkspaceDir — session→workspace routing', () => {
+describe('resolveWorkspaceDir — strict session→workspace routing (no silent fallback)', () => {
   const ctxWith = (workspaces) => ({
     get(name) {
       return name === 'workspaceRegistry' ? { list: () => workspaces } : undefined
     },
   })
+  const wsA = { path: 'C:/ws-a', sessionIds: ['s1', 's2'] }
+  const wsB = { path: 'C:/ws-b', sessionIds: ['s3'] }
 
-  test('session owned by a workspace resolves to its path', () => {
-    const workspaces = [
-      { path: 'C:/ws-a', sessionIds: ['s1', 's2'] },
-      { path: 'C:/ws-b', sessionIds: ['s3'] },
-    ]
-    assert.equal(resolveWorkspaceDir(ctxWith(workspaces), 's3'), 'C:/ws-b')
+  test('a session owned by a workspace resolves to its path', () => {
+    assert.equal(resolveWorkspaceDir(ctxWith([wsA, wsB]), 's3'), 'C:/ws-b')
   })
 
-  test('unknown session falls back to the first workspace', () => {
-    const workspaces = [{ path: 'C:/ws-a', sessionIds: ['s1'] }]
-    assert.equal(resolveWorkspaceDir(ctxWith(workspaces), 'nobody'), 'C:/ws-a')
+  test('an unknown session is REFUSED instead of silently falling back', () => {
+    assert.throws(
+      () => resolveWorkspaceDir(ctxWith([wsA, wsB]), 'nobody'),
+      (err) => err instanceof Error && /refusing to save/i.test(err.message),
+    )
   })
 
-  test('no workspaces → undefined; no registry → undefined', () => {
+  test('the refusal names the session, lists every registered workspace, and says how to fix it', () => {
+    try {
+      resolveWorkspaceDir(ctxWith([wsA, wsB]), 'nobody')
+      assert.fail('expected an unknown session to be refused')
+    } catch (err) {
+      assert.match(err.message, /nobody/) // why: which session was involved
+      assert.match(err.message, /C:\/ws-a/) // what exists
+      assert.match(err.message, /C:\/ws-b/)
+      assert.match(err.message, /How to fix/i) // how to recover
+    }
+  })
+
+  test('a single workspace with no session id is unambiguous and resolves', () => {
+    assert.equal(resolveWorkspaceDir(ctxWith([wsA])), 'C:/ws-a')
+  })
+
+  test('several workspaces with no session id are ambiguous → refused', () => {
+    assert.throws(
+      () => resolveWorkspaceDir(ctxWith([wsA, wsB])),
+      (err) => err instanceof Error && /refusing to save/i.test(err.message),
+    )
+  })
+
+  test('no workspaces → undefined; no registry → undefined (caller reports it)', () => {
     assert.equal(resolveWorkspaceDir(ctxWith([]), 's1'), undefined)
     assert.equal(resolveWorkspaceDir({ get: () => undefined }, 's1'), undefined)
   })

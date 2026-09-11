@@ -39,7 +39,8 @@ try {
   await fs.rm(dir, { recursive: true, force: true })
 }
 
-// 4. workspace resolution: session-owned workspace, then first-workspace fallback
+// 4. workspace resolution: STRICT — an unknown or ambiguous session is refused
+// outright; the plugin never silently routes a paste into another workspace.
 const fakeCtx = {
   get(key) {
     if (key === 'workspaceRegistry') {
@@ -53,12 +54,25 @@ const fakeCtx = {
     return undefined
   },
 }
+const refuses = (fn, label) => {
+  try {
+    fn()
+  } catch (error) {
+    if (error instanceof Error && /refusing to save/.test(error.message)) return
+    fail(`${label}: unexpected error — ${error}`)
+  }
+  fail(`${label}: expected a refusal, got a silent fallback`)
+}
 if (resolveWorkspaceDir(fakeCtx, 's3') !== '/ws/b') fail('session workspace resolution wrong')
-if (resolveWorkspaceDir(fakeCtx, 'missing') !== '/ws/a') fail('fallback resolution wrong')
-if (resolveWorkspaceDir(fakeCtx) !== '/ws/a') fail('no-session fallback wrong')
+if (resolveWorkspaceDir(fakeCtx, 's1') !== '/ws/a') fail('second workspace owner resolution wrong')
+refuses(() => resolveWorkspaceDir(fakeCtx, 'missing'), 'unknown session')
+refuses(() => resolveWorkspaceDir(fakeCtx), 'ambiguous call without a session id')
+const soloCtx = { get: () => ({ list: () => [{ path: '/ws/only', sessionIds: [] }] }) }
+if (resolveWorkspaceDir(soloCtx) !== '/ws/only')
+  fail('single-workspace no-session resolution wrong')
 if (resolveWorkspaceDir({ get: () => undefined }, 's1') !== undefined)
   fail('no registry must yield undefined')
-console.log('resolveWorkspaceDir OK')
+console.log('resolveWorkspaceDir OK (strict)')
 
 // 5. Typert host manifest shape (mirrors typert-loader validation)
 if (TYPERT.package !== 'dsh-auto-paste' || TYPERT.face !== 'host') fail('TYPERT identity wrong')
