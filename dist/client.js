@@ -268,6 +268,11 @@ window.__ModuleLoader__.load({
          * The reference line we drop into the composer. ONE source: the removal path
          * searches for exactly this string, so a second copy anywhere would silently
          * break the bar button that depends on it.
+         *
+         * `chars` arrives from the host and is a count of UTF-16 code units
+         * (`String.prototype.length`) — an emoji counts as 2, a CJK char as 1. The
+         * unit is frozen: references already sitting in old messages show numbers
+         * computed this way, so re-deriving them differently would restate them.
          */
         function pasteReference(path, chars) {
             return `[已保存大段粘贴为附件: ${path} (${chars} 字符)]`;

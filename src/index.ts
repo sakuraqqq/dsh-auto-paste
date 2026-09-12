@@ -24,16 +24,46 @@ import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 // Plugin display name, shown in loader diagnostics.
 export const name = 'dsh-auto-paste'
 
-/** Canonical result of one saved paste (also the remote's result schema). */
+/**
+ * Internal result of one saved paste, exactly as `savePasteTo` produces it. It
+ * carries the absolute path for the host's own bookkeeping; anything that crosses
+ * a boundary (the RPC result, the model tool output) is narrowed by
+ * {@link publicPasteRef} first.
+ */
 export interface SavePasteResult {
   /** Workspace-relative path, forward slashes: pastes/20260815-103000.txt */
   path: string
-  /** Absolute filesystem path the file was written to. */
+  /** Absolute filesystem path the file was written to. Host-side only. */
   absolutePath: string
   /** UTF-8 byte length of the written text. */
   bytes: number
-  /** Character length of the written text. */
+  /**
+   * Length in UTF-16 code units (`String.prototype.length`) — NOT bytes, NOT
+   * grapheme clusters: one emoji (a surrogate pair) counts as 2, one CJK char as 1.
+   * The unit is frozen on purpose: this number is rendered into reference lines
+   * that already sit in old messages, so changing it would silently restate them.
+   */
   chars: number
+}
+
+/**
+ * The boundary shape: everything the web client and the model tool receive. The
+ * absolute path stays host-side deliberately — it embeds the machine's user name
+ * and directory layout, and no consumer needs it (the reference line already
+ * shows the workspace-relative path).
+ */
+export interface SavedPasteRef {
+  /** Workspace-relative path, forward slashes: pastes/20260815-103000.txt */
+  path: string
+  /** UTF-8 byte length of the written text. */
+  bytes: number
+  /** Length in UTF-16 code units — see {@link SavePasteResult.chars}. */
+  chars: number
+}
+
+/** Narrow an internal write result to the boundary shape ({@link SavedPasteRef}). */
+export function publicPasteRef(result: SavePasteResult): SavedPasteRef {
+  return { path: result.path, bytes: result.bytes, chars: result.chars }
 }
 
 /** Longest accepted `label` (chars) — keeps names far below path limits. */
@@ -404,7 +434,7 @@ class PasteStoreService extends TypertRemoteService {
   }
 
   /** Save one pasted text chunk into the session workspace's pastes/ dir. */
-  async savePaste(text: string, sessionId: string): Promise<SavePasteResult> {
+  async savePaste(text: string, sessionId: string): Promise<SavedPasteRef> {
     // Runtime guard: the wire validates its own callers, but this is a public
     // service — a direct (in-process) caller can hand us anything, and the value
     // would otherwise travel to a filesystem write. Refuse it by name.
@@ -413,7 +443,8 @@ class PasteStoreService extends TypertRemoteService {
     }
     const dir = resolveWorkspaceDir(this.ctx, sessionId)
     if (dir === undefined) throw new Error('pasteStore: no workspace available to save the paste into')
-    return savePasteTo(dir, text, new Date(), this.maxBytes)
+    // The absolute path never crosses the wire (see SavedPasteRef).
+    return publicPasteRef(await savePasteTo(dir, text, new Date(), this.maxBytes))
   }
 }
 
@@ -475,17 +506,18 @@ export function apply(ctx: Context, config: { minChars?: number; maxBytes?: numb
     },
 
     output: {
+      // Boundary shape (SavedPasteRef): the absolute path is deliberately absent —
+      // the tool result is what lands in the model's context.
       schema: {
         type: 'object',
         properties: {
           path: { type: 'string', required: true, description: 'Workspace-relative file path (pastes/<timestamp>.txt).' },
-          absolutePath: { type: 'string', required: true, description: 'Absolute filesystem path written.' },
           bytes: { type: 'integer', required: true, description: 'UTF-8 bytes written.' },
-          chars: { type: 'integer', required: true, description: 'Character count written.' },
+          chars: { type: 'integer', required: true, description: 'Length in UTF-16 code units (an emoji counts as 2).' },
         },
         additionalProperties: false,
       },
-      render: (_args: unknown, value: SavePasteResult) => [{
+      render: (_args: unknown, value: SavedPasteRef) => [{
         type: 'text',
         text: `Saved paste to ${value.path} (${value.bytes} bytes). Reference this file path in your reply.`,
       }],
@@ -505,7 +537,7 @@ export function apply(ctx: Context, config: { minChars?: number; maxBytes?: numb
       if (!isRegisteredWorkspace(dir, registered)) {
         throw new Error(`save_paste: refusing to write outside a registered workspace (${dir})`)
       }
-      return savePasteTo(dir, args.text, new Date(), maxBytes, args.label)
+      return publicPasteRef(await savePasteTo(dir, args.text, new Date(), maxBytes, args.label))
     },
   }))
 

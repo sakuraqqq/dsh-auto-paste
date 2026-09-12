@@ -13,9 +13,11 @@ import { z } from 'zod'
 // design (one emoji is 1 char but 4 bytes). The host is the only cap.
 const savePasteText$schema = z.string()
 const savePasteSessionId$schema = z.string()
+// The wire result carries NO absolute path: it embeds the host machine's user name
+// and directory layout, and the browser only needs the workspace-relative path and
+// the size numbers. The model tool output is narrowed the same way (SavedPasteRef).
 const savePasteResult$schema = z.object({
   path: z.string(),
-  absolutePath: z.string(),
   bytes: z.number(),
   chars: z.number(),
 })
@@ -65,7 +67,7 @@ export const TYPERT = {
       ],
       result: {
         mode: 'strict',
-        typeSymbol: 'dsh-auto-paste/types#SavePasteResult',
+        typeSymbol: 'dsh-auto-paste/types#SavedPasteRef',
         schema: savePasteResult$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 1, column: 1 },
