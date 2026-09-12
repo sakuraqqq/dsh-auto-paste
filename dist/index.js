@@ -15,6 +15,7 @@
 //
 import { join, dirname, basename, relative } from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
+import z from '@deepseek-ai/schemastery';
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 // Plugin display name, shown in loader diagnostics.
@@ -84,6 +85,22 @@ export function resolveMaxBytes(raw) {
  */
 export const MIN_CHARS_DEFAULT = 500;
 /**
+ * Settings namespace this plugin owns (`settings.register` requires a lowercase
+ * hyphenated identifier). The browser side backs it with a row in dsh's General
+ * settings section (`settings.general.item`).
+ */
+export const PASTE_SETTINGS_NAMESPACE = 'dsh-auto-paste';
+/** Field inside {@link PASTE_SETTINGS_NAMESPACE} carrying the user's threshold. */
+export const MIN_CHARS_FIELD = 'minChars';
+/**
+ * Durable user layer, deliberately `required(false)`: an absent field means "the
+ * user never overrode this", which is exactly what keeps `cordis.patch.yml` the
+ * deployment default instead of being shadowed by a schema default.
+ */
+export const PasteSettingsSchema = z.object({
+    [MIN_CHARS_FIELD]: z.natural().min(1).required(false),
+});
+/**
  * Resolve the configured `minChars`: `undefined` falls back to the default,
  * anything else must be a positive integer. Throws on violation so the caller
  * decides (boot logs it, then falls back to the default) — deliberately the
@@ -99,6 +116,18 @@ export function resolveMinChars(raw) {
         throw new Error(`minChars must be positive (got ${raw})`);
     }
     return raw;
+}
+/**
+ * Combine the two layers: a usable stored value wins, otherwise the deployment
+ * value. An unusable value on either side is ignored rather than trusted — the
+ * schema already refuses one at the document boundary, but this function stays
+ * total so a hand-edited document can never break the paste path.
+ */
+export function effectiveMinChars(stored, deployment) {
+    const usable = (value) => typeof value === 'number' && Number.isInteger(value) && value > 0;
+    if (usable(stored))
+        return { minChars: stored, source: 'user' };
+    return { minChars: usable(deployment) ? deployment : MIN_CHARS_DEFAULT, source: 'deployment' };
 }
 /**
  * Guard against oversized pastes (resource-exhaustion vector): the web client
@@ -206,23 +235,70 @@ export function isRegisteredWorkspace(dir, workspaces) {
 }
 /** Host service the web client calls via the connection RPC (`/api`). */
 class PasteStoreService extends TypertRemoteService {
-    /** Effective char threshold for capturing a paste (resolved once at boot). */
-    minChars;
+    /** Deployment default char threshold, from the loader row config (cordis.patch.yml). */
+    deploymentMinChars;
     /** Effective byte ceiling for one paste (resolved once at boot). */
     maxBytes;
-    constructor(ctx, minChars, maxBytes) {
+    constructor(ctx, deploymentMinChars, maxBytes) {
         super(ctx, 'pasteStore');
-        this.minChars = minChars;
+        this.deploymentMinChars = deploymentMinChars;
         this.maxBytes = maxBytes;
+    }
+    /** The settings service for this context, or undefined without a provider. */
+    settings() {
+        return this.ctx.get('settings');
+    }
+    /** The effective threshold right now, together with the layer it came from. */
+    effective() {
+        const stored = this.settingsValue();
+        return effectiveMinChars(stored?.[MIN_CHARS_FIELD], this.deploymentMinChars);
+    }
+    /** The user layer as stored, or undefined when nothing is stored (or no provider). */
+    settingsValue() {
+        const value = this.settings()?.get(PASTE_SETTINGS_NAMESPACE);
+        return typeof value === 'object' && value !== null
+            ? value
+            : undefined;
+    }
+    /** Build the wire payload the browser reads (and re-reads after every write). */
+    config() {
+        const { minChars, source } = this.effective();
+        return {
+            minChars,
+            maxBytes: this.maxBytes,
+            minCharsSource: source,
+            deploymentMinChars: this.deploymentMinChars,
+            canConfigure: this.settings() !== undefined,
+        };
     }
     /**
      * The effective configuration, for the web client. This is the ONLY way the
      * threshold reaches the browser: a client bundle never receives the loader row
      * config, so without this call the client would be stuck on its own built-in
-     * default and the documented knob would be silently inert.
+     * default and the documented knob would be silently inert. Re-read on every
+     * call, so a preference saved in Settings applies without a restart.
      */
     getConfig() {
-        return { minChars: this.minChars, maxBytes: this.maxBytes };
+        return this.config();
+    }
+    /**
+     * Store the user's threshold, or clear it (`null`). Clearing uses `replace({})`
+     * because a merge-only patch cannot express removal — that is the only way
+     * back to the deployment default.
+     */
+    async setMinChars(value) {
+        const settings = this.settings();
+        if (settings === undefined) {
+            throw new Error('pasteStore.setMinChars: this deployment has no settings provider, so the preference cannot be stored — set minChars in cordis.patch.yml and restart dsh instead');
+        }
+        if (value === null) {
+            await settings.replace(PASTE_SETTINGS_NAMESPACE, {});
+        }
+        else {
+            // Same validation as the row config, so both entry points reject identically.
+            await settings.update(PASTE_SETTINGS_NAMESPACE, { [MIN_CHARS_FIELD]: resolveMinChars(value) });
+        }
+        return this.config();
     }
     /** Save one pasted text chunk into the session workspace's pastes/ dir. */
     async savePaste(text, sessionId) {
@@ -252,6 +328,16 @@ export function apply(ctx, config = {}) {
     catch (error) {
         console.error(`[dsh-auto-paste] invalid maxBytes in config — falling back to ${MAX_PASTE_BYTES} bytes:`, error);
     }
+    // Declare the user-preference namespace when this deployment has a settings
+    // provider. Deliberately optional: a profile without settings still gets the
+    // plugin, it just keeps the cordis.patch.yml value (and the General row says so
+    // instead of failing).
+    ctx.inject(['settings'], (settingsCtx) => {
+        // `settings` is provided by the composition, so the Cordis Context type does
+        // not carry it; the cast only names the slice we call (SettingsServiceLike).
+        const settings = settingsCtx.settings;
+        settings.register(PASTE_SETTINGS_NAMESPACE, PasteSettingsSchema, { applies: 'live' });
+    });
     new PasteStoreService(ctx, minChars, maxBytes);
     ctx.tools.register(defineTool({
         // The name the model uses to call this tool.
