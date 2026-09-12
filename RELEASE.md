@@ -1,6 +1,6 @@
 # dsh-auto-paste 发布检查清单（Release Checklist）
 
-> 状态：E2E 已通过（2026-08-15），用户自用观察期进行中。许可切换 ✅（2026-08-16）。
+> 状态：E2E 已通过（2026-08-15）；许可切换 ✅（2026-08-16）；**0.1.4 待发布**（代码已在 `main`，发布前文档已同步 —— 2026-09-13）。
 > 提交链：47ad2d8 → 3a832c3 → aa59f46 → 343cbf6 → 25c4a2a → db4333b（许可切换 MIT）→ e4e8b1f（记录 v0.1.0 发布）
 > 发布标准：**全自动 E2E 通过**。半自动方案（save_paste 兜底）不发布。
 > **已发布**：dsh-auto-paste@0.1.0（2026-08-16，官方源 registry.npmjs.org，dist-tag `next`，GitHub 源仓库 https://github.com/sakuraqqq/dsh-auto-paste tag v0.1.0）。
@@ -8,6 +8,14 @@
 > **0.1.3 已发布**（2026-09-10，官方源）——适配 **dsh 0.1.5-rc.1**：composer 由 `<textarea>` 改为 Lexical `contenteditable` 导致大段粘贴静默失效，已修 client 判定与插入路径；依赖线升 `0.1.5-rc.1`；首落 P1/P2/P3 质量门（eslint+prettier · `tools/metrics.mjs` 复杂度硬门禁 · GitHub Actions CI）。发布后核验：`versions` 含 `0.1.3`、shasum `a7831365fec080ca02c1bfc31614ecd37285bea9`（与本地打包一致）、tag `v0.1.3` → commit `d8c5a60`。
 > **0.1.3 转正 + GitHub Release（2026-09-12 完成）**：`latest` 已由 0.1.2 → **0.1.3**（线上实测 `{"latest":"0.1.3","next":"0.1.3"}`）；Release **v0.1.3** 已建并标 `Latest`（notes 源 = `RELEASE-NOTES-v0.1.3.md`）。⚠️ 「≥3 天观察期」由用户拍板**跳过**（9/10 发、9/12 转），记录在案以备复盘。
 > 注：`dist-tag add` 不支持 OIDC（npm 限制），转正必须人工带 2FA；**发版**已由 `.github/workflows/publish.yml`（OIDC）自动化。
+> **0.1.4 待发布**（2026-09-13）——四批审查修复已入 `main`：`5a0dd2f`（A/B）· `875f3cd`（C）· `e3ded0d`（D）· `437be21`（D2）。
+> 内容：发布链路修正（顺序 commit → tag → push，发布交给 OIDC）· wire 去掉字符上限（host 字节校验唯一权威）· 保存失败如实回报 ·
+> 药丸按会话绑定 · ✕「移除引用」改派发 `beforeinput`（`execCommand('delete')` 实测被 Lexical 还原）·
+> 侧栏「查看」改传绝对路径（相对路径被 `requireAbsolute` 拒 → 400）· 粘贴文件 0700/0600 · `savePaste` 运行时类型守卫 ·
+> toast 定时器随卸载清理 · `smoke` 遍历全部 invocation · `setMinChars(null)` 改路径寻址 `unset` ·
+> `chars` 口径冻结为 UTF-16 code units（仅文档化）· 模型侧工具输出收窄为 `path/bytes/chars`（RPC 结果保留绝对路径，侧栏保存需要）。
+> 发布前审查（2026-09-13）：隐私 **0 真命中** / 版权通过 / 70 项测试 + 四门禁全绿；完整记录见 `.私档/REVIEW-20260913-推送前审查.md`（含本机路径，故留私档）。
+> 发布后核验：待填（版本 / shasum / tag→commit / GitHub Release）。
 
 ## 0. 观察期并行检查（自用期间顺手做，第 3 天汇总）
 
@@ -55,8 +63,8 @@ dsh --profile headless "run a probe"   # 无 API key 时模型调用报 MISSING_
 ```sh
 cd workspace/dsh-auto-paste
 pnpm run typecheck     # 通过
-pnpm test              # 18 项全绿（node:test）
-npm pack --dry-run     # 10 文件：README + LICENSE + cordis.patch.yml + dist/{client,index,typert.host}.js + src/{index.ts,client.js,typert.host.ts} + package.json
+pnpm test              # 70 项全绿（node:test）—— 2026-09-13 复核
+npm pack --dry-run     # 10 文件（2026-09-13 复核：仍为 10）：README + LICENSE + cordis.patch.yml + dist/{client,index,typert.host}.js + src/{index.ts,client.js,typert.host.ts} + package.json
 ```
 
 - [x] **许可切换（✅ 2026-08-16，commit db4333b）**
