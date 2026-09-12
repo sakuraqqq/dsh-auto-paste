@@ -76,10 +76,35 @@ export function resolveMaxBytes(raw) {
     return raw;
 }
 /**
+ * Default large-paste threshold (chars). The HOST owns this number: the web
+ * client cannot read the loader row config (dsh never hands a client bundle
+ * one — `dsh.client` accepts only platform/inject/external/immediately, and the
+ * boot graph carries no config), so it fetches the effective value from us over
+ * the RPC instead. One authority, no second default to drift.
+ */
+export const MIN_CHARS_DEFAULT = 500;
+/**
+ * Resolve the configured `minChars`: `undefined` falls back to the default,
+ * anything else must be a positive integer. Throws on violation so the caller
+ * decides (boot logs it, then falls back to the default) — deliberately the
+ * same shape as {@link resolveMaxBytes}.
+ */
+export function resolveMinChars(raw) {
+    if (raw === undefined)
+        return MIN_CHARS_DEFAULT;
+    if (typeof raw !== 'number' || !Number.isInteger(raw)) {
+        throw new Error(`minChars must be an integer (got ${JSON.stringify(raw)})`);
+    }
+    if (raw <= 0) {
+        throw new Error(`minChars must be positive (got ${raw})`);
+    }
+    return raw;
+}
+/**
  * Guard against oversized pastes (resource-exhaustion vector): the web client
- * applies its own 500-char floor, but the RPC and the model tool can be called
- * with arbitrary text, so the server rejects anything above `maxBytes` BEFORE
- * any file is created. Throws on violation.
+ * applies its own char floor (the host's effective `minChars`), but the RPC and
+ * the model tool can be called with arbitrary text, so the server rejects
+ * anything above `maxBytes` BEFORE any file is created. Throws on violation.
  */
 export function assertPasteSize(text, maxBytes = MAX_PASTE_BYTES) {
     const bytes = Buffer.byteLength(text, 'utf8');
@@ -181,11 +206,23 @@ export function isRegisteredWorkspace(dir, workspaces) {
 }
 /** Host service the web client calls via the connection RPC (`/api`). */
 class PasteStoreService extends TypertRemoteService {
+    /** Effective char threshold for capturing a paste (resolved once at boot). */
+    minChars;
     /** Effective byte ceiling for one paste (resolved once at boot). */
     maxBytes;
-    constructor(ctx, maxBytes) {
+    constructor(ctx, minChars, maxBytes) {
         super(ctx, 'pasteStore');
+        this.minChars = minChars;
         this.maxBytes = maxBytes;
+    }
+    /**
+     * The effective configuration, for the web client. This is the ONLY way the
+     * threshold reaches the browser: a client bundle never receives the loader row
+     * config, so without this call the client would be stuck on its own built-in
+     * default and the documented knob would be silently inert.
+     */
+    getConfig() {
+        return { minChars: this.minChars, maxBytes: this.maxBytes };
     }
     /** Save one pasted text chunk into the session workspace's pastes/ dir. */
     async savePaste(text, sessionId) {
@@ -198,8 +235,16 @@ class PasteStoreService extends TypertRemoteService {
 // Wait until the host's tool registry (ctx.tools) is ready before running.
 export const inject = ['tools'];
 export function apply(ctx, config = {}) {
-    const minChars = typeof config.minChars === 'number' && config.minChars > 0 ? config.minChars : 500;
-    // An invalid maxBytes must never pass silently: log it, then fall back to the default.
+    // An invalid value must never pass silently: log it, then fall back to the
+    // default, so a typo in the row config stays visible instead of taking the
+    // plugin down. Same shape for both knobs.
+    let minChars = MIN_CHARS_DEFAULT;
+    try {
+        minChars = resolveMinChars(config.minChars);
+    }
+    catch (error) {
+        console.error(`[dsh-auto-paste] invalid minChars in config — falling back to ${MIN_CHARS_DEFAULT} chars:`, error);
+    }
     let maxBytes = MAX_PASTE_BYTES;
     try {
         maxBytes = resolveMaxBytes(config.maxBytes);
@@ -207,13 +252,13 @@ export function apply(ctx, config = {}) {
     catch (error) {
         console.error(`[dsh-auto-paste] invalid maxBytes in config — falling back to ${MAX_PASTE_BYTES} bytes:`, error);
     }
-    new PasteStoreService(ctx, maxBytes);
+    new PasteStoreService(ctx, minChars, maxBytes);
     ctx.tools.register(defineTool({
         // The name the model uses to call this tool.
         name: 'save_paste',
         // Discipline fallback: the model persists big user pastes and references
         // the file path instead of echoing the whole chunk back.
-        description: 'Persist a large pasted text chunk to pastes/<timestamp>.txt in the current session workspace, and return the workspace-relative path to reference in the reply. Use this whenever the user pastes a big block of text (roughly 500+ characters): save it, then work against the file instead of echoing the raw text.',
+        description: `Persist a large pasted text chunk to pastes/<timestamp>.txt in the current session workspace, and return the workspace-relative path to reference in the reply. Use this whenever the user pastes a big block of text (roughly ${minChars}+ characters): save it, then work against the file instead of echoing the raw text.`,
         parameters: {
             text: {
                 type: 'string',

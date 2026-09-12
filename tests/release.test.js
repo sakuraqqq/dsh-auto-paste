@@ -16,8 +16,10 @@ import {
   assertPasteSize,
   sanitizeLabel,
   resolveMaxBytes,
+  resolveMinChars,
   MAX_PASTE_BYTES,
   MAX_PASTE_BYTES_CAP,
+  MIN_CHARS_DEFAULT,
 } from '../dist/index.js'
 
 const PKG_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -178,6 +180,56 @@ describe('static regression guards — past bugs must not resurrect', () => {
       /id:\s*PACKAGE/,
       'the overlay entry keeps its own id (additive, never replacing)',
     )
+  })
+
+  test('the client takes minChars from the host, never from a local copy', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+    // dsh never hands a client bundle the loader row config: `dsh.client`
+    // accepts only platform/inject/external/immediately, and the boot graph
+    // carries no config at all (dsh-client-modules/lib/index.js). So the
+    // browser half must ask the host — reading a local config is dead code
+    // that would silently pin whatever default we shipped.
+    assert.match(
+      src,
+      /pasteStore\/getConfig/,
+      'the client must fetch the effective value from the host over the existing RPC',
+    )
+    assert.doesNotMatch(
+      src,
+      /config\.minChars/,
+      'the client receives no config object — its threshold must come from the host',
+    )
+    assert.match(
+      src,
+      /DEFAULT_MIN_CHARS/,
+      'a documented fallback must remain for the case where the config RPC fails',
+    )
+  })
+
+  test('the host owns minChars: exported resolver + interpolated tool description', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'index.ts'), 'utf8')
+    assert.match(
+      src,
+      /export function resolveMinChars\(/,
+      'resolveMinChars must be exported (unit-tested directly)',
+    )
+    assert.doesNotMatch(
+      src,
+      /roughly 500\+ characters/,
+      'the tool description must not hardcode a third copy of the threshold',
+    )
+    assert.match(
+      src,
+      /roughly \$\{minChars\}\+ characters/,
+      'the tool description must state the EFFECTIVE threshold',
+    )
+  })
+
+  test('src/typert.host.ts declares the pasteStore/getConfig invocation', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'typert.host.ts'), 'utf8')
+    assert.match(src, /id: 'dsh-auto-paste#pasteStore\/getConfig'/)
+    assert.match(src, /method: 'getConfig'/)
+    assert.match(src, /minChars: z\.number\(\)/)
   })
 })
 
@@ -402,6 +454,29 @@ describe('resolveMaxBytes — configurable cap with a hard ceiling', () => {
       await assert.rejects(() => readFile(join(dir, 'pastes'), 'utf8'))
     } finally {
       await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('resolveMinChars — the host is the single authority for the paste threshold', () => {
+  test('absent config falls back to the documented default', () => {
+    assert.equal(MIN_CHARS_DEFAULT, 500)
+    assert.equal(resolveMinChars(undefined), MIN_CHARS_DEFAULT)
+  })
+
+  test('valid positive integers pass through unchanged (no ceiling by design)', () => {
+    assert.equal(resolveMinChars(1), 1)
+    assert.equal(resolveMinChars(2000), 2000)
+  })
+
+  test('non-positive, non-integer and non-number values throw with a minChars message', () => {
+    const bad = [0, -1, 1.5, '500', null, true, Number.NaN, Number.POSITIVE_INFINITY]
+    for (const value of bad) {
+      assert.throws(
+        () => resolveMinChars(value),
+        (err) => err instanceof Error && /minChars/.test(err.message),
+        `expected rejection for ${String(value)}`,
+      )
     }
   })
 })

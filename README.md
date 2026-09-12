@@ -42,7 +42,8 @@ npm i dsh-auto-paste@0.1.2                    # 或指定版本
 # 在插件父目录执行，以包名注册到目标 profile：
 dsh plugin --profile web add dsh-auto-paste
 dsh --profile web            # 重启 web profile，观察: [dsh-auto-paste] host ready ...
-# 刷新浏览器页面后，控制台可见: [dsh-auto-paste] client paste listener ready (minChars=500)
+# 刷新浏览器页面后，控制台可见: [dsh-auto-paste] client paste listener attached — threshold 500 chars until the host's config arrives
+#                              随后: [dsh-auto-paste] config from host: minChars=500, maxBytes=1048576
 ```
 
 **方式二：本地目录安装（开发/调试）**
@@ -53,7 +54,9 @@ dsh plugin --profile web add ./dsh-auto-paste
 dsh --profile web
 ```
 
-改动插件后：`pnpm install && pnpm run build`（tsc → dist/），然后重启 `dsh --profile web` 并刷新页面。`minChars` 阈值在 `cordis.patch.yml` 的 row config 中调整。
+改动插件后：`pnpm install && pnpm run build`（tsc → dist/），然后重启 `dsh --profile web` 并刷新页面。
+
+`minChars` / `maxBytes` 阈值在 `cordis.patch.yml` 的 row config 中调整，**改完只需重启 dsh，不用重新构建**。host 是唯一权威：客户端半身拿不到 row config（dsh 的 `dsh.client` 只认 platform/inject/external/immediately，启动图里不带 config），它在启动时通过 `pasteStore/getConfig` RPC 向 host 取生效值；取到之前或取失败时用 500 兜底并在控制台标出来源。
 
 ## Verification without an API key / 无 key 验证
 

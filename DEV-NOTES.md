@@ -126,3 +126,20 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
 - **防再犯**：给 dsh 加浮层前，先用 `cordis_inspect_query`（Slots.listSubTree 看占用方与注册契约）**再读该槽容器的真实 CSS**；「目录说这槽是给 toast 的」只能证明**座位**对，证不了**落点**对。
 - **一句话教训**：插槽决定**层级**，占用方决定**位置**；想「和 dsh 一样」，就去找它渲染那件东西的**同一行 JSX**，别找一个听起来像的槽。
 
+### 8.8 客户端半身拿不到 row config —— 配置旋钮会「静静地不生效」（2026-09-12）
+- **现象**：`cordis.patch.yml` 的 row config **只有 host 半身收得到**。客户端 `apply(ctx, config)` 的 `config` 恒为空对象，于是读到本地配置那几行是**死代码**：把 `minChars` 改成 2000，浏览器侧照旧按 500 拦截，host 只在启动日志里打出 2000 —— 看起来「配置生效了」，实际没有。
+- **证据（dsh 0.1.5-rc.1，三处源码）**：
+  1. `dsh-client-modules/lib/index.js:139-149`（`parseDshClient`）—— `dsh.client` 只接受 `platform` / `inject` / `external` / `immediately`，**没有 config 字段**；
+  2. 同文件 `bootInjections():387-432` —— 发给浏览器的启动图只含 batch URL 与 `__DSH_BOOT__` 图，**没有任何 per-row config**；
+  3. 同目录 `client.js:362` —— 客户端模块系统自己 apply 插件半身，不传 config。
+- **正解（3b 起）**：host 作唯一权威，客户端启动时经**既有 RPC** 取生效值（本项目 `pasteStore/getConfig`），取不到再用兜底值并在控制台**标出来源**。粘贴判据必须同步（`preventDefault` 得在事件里同步调用），所以配置**只能在启动时拉**，不能等粘贴瞬间再问。
+- **零参数 invocation 合法（已实测）**：`dsh-typert-loader/lib/index.js:153-205` 只强校验 `id/service/namespace/method`（非空字符串）、receiver kind、result codec；`parameters` 是数组遍历 —— `parameters: []` 通过。
+- **配套纪律（新增，防炸用户重启）**：**改 typert descriptor 后，先离线用 dsh 自己的校验器验一遍，再让用户重启** —— descriptor 被拒 = 插件整行加载失败，正好炸在用户重启那一刻。探针（已 `script_archive` 存档，id `mtyfv8ak7mqk`）：
+  ```js
+  const { validateTypertManifest } = await import(
+    pathToFileURL(`${process.env.APPDATA}/npm/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-typert-loader/lib/index.js`).href
+  )
+  validateTypertManifest('dsh-auto-paste', TYPERT)   // 抛错即会被 dsh 拒
+  ```
+  （`requireStrictCodec` 另有两条硬要求：`mode === 'strict'`，且 `schema` 必须是**裸 zod v4 对象** —— `'_zod' in schema && typeof schema.parse === 'function'`。）
+

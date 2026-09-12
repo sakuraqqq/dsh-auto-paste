@@ -18,6 +18,14 @@ const savePasteResult$schema = z.object({
   chars: z.number(),
 })
 
+// The web client's ONLY source for the effective threshold/cap: it cannot read
+// the loader row config (dsh hands a client bundle no config at all), so it
+// asks for the resolved values at startup. No parameters.
+const getConfigResult$schema = z.object({
+  minChars: z.number(),
+  maxBytes: z.number(),
+})
+
 export const TYPERT = {
   package: 'dsh-auto-paste',
   face: 'host',
@@ -47,6 +55,21 @@ export const TYPERT = {
         mode: 'strict',
         typeSymbol: 'dsh-auto-paste/types#SavePasteResult',
         schema: savePasteResult$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 1, column: 1 },
+    },
+    {
+      id: 'dsh-auto-paste#pasteStore/getConfig',
+      service: 'pasteStore',
+      namespace: 'pasteStore',
+      method: 'getConfig',
+      invocation: { kind: 'direct' },
+      // No parameters: the effective config is host state, not client input.
+      parameters: [],
+      result: {
+        mode: 'strict',
+        typeSymbol: 'dsh-auto-paste/types#PasteStoreConfig',
+        schema: getConfigResult$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 1, column: 1 },
     },

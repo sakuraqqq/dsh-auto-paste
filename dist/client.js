@@ -24,11 +24,17 @@ window.__ModuleLoader__.load({
     factory: (require) => {
         'use strict';
         const PACKAGE = 'dsh-auto-paste';
-        // Mirrors the host row config (cordis.patch.yml `minChars`); the row
-        // config also reaches apply() below and overrides this default.
+        // FALLBACK ONLY. The host owns the threshold (its loader row config is the
+        // single authority) and hands the effective value over `pasteStore/getConfig`
+        // below. This number applies while that call is in flight, or if it fails.
+        // A client bundle never receives a loader row config — `dsh.client` accepts
+        // only platform/inject/external/immediately, and the boot graph carries no
+        // config — so a local copy could never track the configured value.
         const DEFAULT_MIN_CHARS = 500;
         // RPC timeout: pastes must land quickly; failure falls back to raw text.
         const RPC_TIMEOUT_MS = 15000;
+        // The startup config fetch is best-effort: never stall the listener.
+        const CONFIG_TIMEOUT_MS = 5000;
         const name = 'dsh-auto-paste';
         // Wait until the connection carrier and the sessions runtime are live.
         const inject = ['sessions', 'connection'];
@@ -232,12 +238,49 @@ window.__ModuleLoader__.load({
                 clearTimeout(timer);
             }
         }
-        function apply(ctx, config = {}) {
-            const minChars = typeof config.minChars === 'number' && config.minChars > 0
-                ? config.minChars
-                : DEFAULT_MIN_CHARS;
+        /**
+         * Fetch the host's effective config. The paste decision has to be
+         * synchronous (`preventDefault` must run inside the paste event itself), so
+         * this runs once at startup instead of at paste time; the listener always
+         * reads whichever value is current.
+         */
+        async function fetchHostConfig(connection) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), CONFIG_TIMEOUT_MS);
+            try {
+                const result = await connection.rpc.call('/api', 'pasteStore/getConfig', { args: {} }, controller.signal);
+                if (result && result.ok && result.value)
+                    return result.value;
+                const detail = result && result.error ? `${result.error.code}: ${result.error.message}` : 'unknown error';
+                throw new Error(`getConfig failed: ${detail}`);
+            }
+            finally {
+                clearTimeout(timer);
+            }
+        }
+        function apply(ctx) {
             const sessions = ctx.sessions;
             const connection = ctx.connection;
+            // The host is the authority. Until its answer lands — or if it never does
+            // — the documented fallback applies, so the listener is never blocked.
+            let minChars = DEFAULT_MIN_CHARS;
+            if (connection) {
+                fetchHostConfig(connection)
+                    .then((remote) => {
+                    if (typeof remote.minChars === 'number' &&
+                        Number.isInteger(remote.minChars) &&
+                        remote.minChars > 0) {
+                        minChars = remote.minChars;
+                        console.log(`[${PACKAGE}] config from host: minChars=${remote.minChars}, maxBytes=${remote.maxBytes}`);
+                    }
+                    else {
+                        console.warn(`[${PACKAGE}] host sent an unusable minChars (${JSON.stringify(remote.minChars)}) — keeping the ${DEFAULT_MIN_CHARS}-char fallback`);
+                    }
+                })
+                    .catch((error) => {
+                    console.warn(`[${PACKAGE}] host config unavailable — keeping the ${DEFAULT_MIN_CHARS}-char fallback threshold:`, error);
+                });
+            }
             if (!mountToastSurface(ctx)) {
                 console.warn(`[${PACKAGE}] toast surface unavailable (react=${React !== null}) — saves still work, just without the on-screen confirmation`);
             }
@@ -283,7 +326,7 @@ window.__ModuleLoader__.load({
             };
             document.addEventListener('paste', onPaste, true);
             ctx.effect(() => () => document.removeEventListener('paste', onPaste, true));
-            console.log(`[${PACKAGE}] client paste listener ready (minChars=${minChars})`);
+            console.log(`[${PACKAGE}] client paste listener attached — threshold ${minChars} chars until the host's config arrives`);
         }
         return { name, inject, apply };
     },
