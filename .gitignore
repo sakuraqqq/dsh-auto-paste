@@ -5,11 +5,9 @@ node_modules/
 pastes/
 *.tgz
 
-# 内部/交接文档：天然含本地环境信息（工作区/快照绝对路径等），不进公开仓库
-# （已跟踪的历史文档已做占位符化处理；本规则约束今后新增者）
-HANDOFF-*.md
-DEV-NOTES.md
-
-# task briefs stay local (ASCII glob; avoids ANSI-encoding pitfalls)
-TASK-*.md
+# 私档：内部笔记 / 交接文档 / 任务书等含本地环境信息（工作区·快照绝对路径）
+# 一律放这个目录，整目录不进公开仓库 —— 新增私密文档直接丢进去，不用再改规则。
+# 注意：.gitignore 对「已跟踪」文件无效；曾入库的文档必须 git rm --cached 才算
+# 真正取消跟踪（2026-09-12 已对 5 个文档执行）。
+.私档/
 .script-archive/
