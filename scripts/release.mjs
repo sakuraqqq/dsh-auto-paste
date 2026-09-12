@@ -1,12 +1,11 @@
 #!/usr/bin/env node
-// release.mjs — dsh-auto-paste 一键发布脚本（B 方案：手动控版本号 + tag）
+// release.mjs — dsh-auto-paste 一键发版脚本（B 方案：手动控版本号 + tag）
 //
 // 用法（在插件目录、你自己的终端跑）：
 //   npm run release -- patch          # 0.1.2 → 0.1.3（修 bug）
 //   npm run release -- minor          # 0.1.2 → 0.2.0（加功能）
 //   npm run release -- major          # 0.1.2 → 1.0.0（大版本）
 //   npm run release -- 0.4.0          # 直接指定版本号
-//   npm run release -- patch --next   # 发布到 npm dist-tag `next`（观察期用）
 //   npm run release -- patch --force  # 跳过 git 干净检查（不推荐）
 //
 // 流水线（每步失败即停，绝不带着坏包往下走）：
@@ -14,14 +13,16 @@
 //   1. 版本已发布检查（npm view，存在即停）← 最高优先守卫
 //   2. 更新 package.json 版本号（--no-git-tag-version 手动控）
 //   3. build:all（tsc + lib 同步 + client）
-//   4. test（18 项质量门）
+//   4. test（质量门）
 //   5. npm pack --dry-run（核对发布清单）
-//   6. npm publish（有 bypass token 静默；403 才提示 OTP）
-//   7. git tag + push main --tags
-//   8. gh release（gh 已登录则发，附 changelog）
-//   9. 发布后验证（npm view 确认线上版本）
+//   6. git commit → tag → push（顺序不能反：tag 必须指向 bump 提交）
+//   7. gh release（gh 已登录则发，附 changelog）
+//   8. 发布状态提示（发布在 CI，异步完成；核验命令见输出）
 //
-// ⚠️ 设计约束：必须在用户自己的 shell 跑（沙箱内 publish/token 不可用）。
+// ⚠️ 本脚本**不发布**：推 tag 会触发 .github/workflows/publish.yml
+//    （npm Trusted Publisher / OIDC）完成发布，dist-tag 由那个 workflow 决定（next）。
+//    脚本只负责「造出指向 bump 提交的 tag 并推上去」。
+// ⚠️ 设计约束：必须在用户自己的 shell 跑（沙箱内 git push/token 不可用）。
 import { execSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -33,11 +34,10 @@ const DRY = process.argv.includes('--dry-run')
 
 // ── 参数解析 ─────────────────────────────────────────────
 const argv = process.argv.slice(2)
-const isNext = argv.includes('--next')
 const force = argv.includes('--force')
 const bump = argv.find((a) => !a.startsWith('--'))
 if (!bump) {
-  console.error('用法: npm run release -- [patch|minor|major|<版本号>] [--next] [--force]')
+  console.error('用法: npm run release -- [patch|minor|major|<版本号>] [--force]')
   process.exit(1)
 }
 const VERSION_RE = /^\d+\.\d+\.\d+$/
@@ -80,12 +80,12 @@ const target = VERSION_RE.test(bump) ? bump : incVersion(current, bump)
 if (!VERSION_RE.test(target)) fail(`非法版本号: ${target}`)
 
 console.log(`\n══════════════════════════════════════════`)
-console.log(`  发布 ${PKG_NAME}: ${current} → ${target}`)
-console.log(`  dist-tag: ${isNext ? 'next' : 'latest'}${force ? '  (--force)' : ''}`)
+console.log(`  发版 ${PKG_NAME}: ${current} → ${target}`)
+console.log(`  npm dist-tag: next（由 publish.yml 决定）${force ? '  (--force)' : ''}`)
 console.log(`══════════════════════════════════════════`)
 
 // ── 阶段 0: git 干净检查 ────────────────────────────────
-log('阶段 0/9  git 工作区检查')
+log('阶段 0/8  git 工作区检查')
 if (!force) {
   const dirty = sh('git status --porcelain', { silent: true })
   if (dirty) {
@@ -99,7 +99,7 @@ if (!force) {
 }
 
 // ── 阶段 1: 版本已发布检查（最高优先守卫）───────────────
-log('阶段 1/9  目标版本是否已发布')
+log('阶段 1/8  目标版本是否已发布')
 try {
   const pub = sh(`npm view ${PKG_NAME}@${target} version`, { silent: true })
   if (pub) fail(`版本 ${target} 已在 npm 上（${pub}）— 换个版本号，npm 不允许覆盖已发布版本`)
@@ -113,23 +113,23 @@ const existingTag = sh(`git tag -l "v${target}"`, { silent: true })
 if (existingTag) fail(`本地已有 tag v${target} — 先处理或换个版本号`)
 
 // ── 阶段 2: 更新版本号（手动控，不打 tag 先）────────────
-log(`阶段 2/9  更新版本号 ${current} → ${target}`)
+log(`阶段 2/8  更新版本号 ${current} → ${target}`)
 pkg.version = target
 writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8')
-ok(`package.json 版本已更新为 ${target}（先不打 tag，等发布成功后打）`)
+ok(`package.json 版本已更新为 ${target}（先不打 tag：等构建/测试/清单核对都过了再 commit→tag）`)
 
 // ── 阶段 3: 构建 ────────────────────────────────────────
-log('阶段 3/9  构建 build:all（tsc + lib 同步 + client）')
+log('阶段 3/8  构建 build:all（tsc + lib 同步 + client）')
 sh('npm run build:all')
 ok('构建完成')
 
 // ── 阶段 4: 测试质量门 ──────────────────────────────────
-log('阶段 4/9  测试 npm test（18 项）')
+log('阶段 4/8  测试 npm test')
 sh('npm test')
 ok('测试全绿')
 
 // ── 阶段 5: 打包预检 ────────────────────────────────────
-log('阶段 5/9  npm pack --dry-run 发布清单核对')
+log('阶段 5/8  npm pack --dry-run 发布清单核对')
 // 用 --json 拿结构化清单（跨 npm 版本稳定；npm 11 的 plain 输出不含文件列表，
 // 2026-08-19 实测只打一行 tgz 名——不能依赖 plain 文本）。
 const packJson = sh('npm pack --dry-run --json', { silent: true })
@@ -162,29 +162,17 @@ if (DRY) {
   process.exit(0)
 }
 
-// ── 阶段 6: npm publish ─────────────────────────────────
-log(`阶段 6/9  npm publish（dist-tag: ${isNext ? 'next' : 'latest'}）`)
-try {
-  sh(`npm publish${isNext ? ' --tag next' : ''}`)
-  ok('npm publish 成功')
-} catch (e) {
-  // bypass token 不弹 OTP；只有 403/OTP 才会走到这
-  const msg = String(e.stderr || e.message)
-  if (/403|EOTP|one-time pass/i.test(msg)) {
-    console.error('  npm 返回 403/OTP 请求 — 检查 bypass token 是否仍有效，或手动补 OTP 重发。')
-  }
-  fail(`publish 失败，版本号已改但未发布。修复后重跑（会重新走全部检查）。`)
-}
-
-// ── 阶段 7: tag + push ──────────────────────────────────
-log('阶段 7/9  git tag v' + target + ' + push')
-sh(`git tag v${target}`)
+// ── 阶段 6: commit → tag → push ─────────────────────────
+// 顺序不能反：tag 必须落在「已提交的 bump」上 —— publish.yml 会校验
+// tag 号 == package.json version，错位的 tag 会在 CI 里直接失败。
+log(`阶段 6/8  git commit → tag v${target} → push`)
 sh('git add package.json && git commit -m "release: v' + target + '"')
+sh(`git tag v${target}`)
 sh(`git push origin main --tags`)
-ok(`tag v${target} 已推送`)
+ok(`v${target} 已推送 — publish.yml（OIDC）据此发布，dist-tag: next`)
 
-// ── 阶段 8: GitHub Release（gh 可用则发）────────────────
-log('阶段 8/9  GitHub Release（gh CLI 可选）')
+// ── 阶段 7: GitHub Release（gh 可用则发）────────────────
+log('阶段 7/8  GitHub Release（gh CLI 可选）')
 let ghNote = ''
 try {
   const changelog = sh(`git log --oneline v${current}..HEAD`, { silent: true })
@@ -209,25 +197,22 @@ try {
   console.log('  （gh 未登录或不可用 — 跳过 GitHub Release，可稍后在网页手动补）')
 }
 
-// ── 阶段 9: 发布后验证 ──────────────────────────────────
-log('阶段 9/9  发布后验证')
-let live = ''
-try {
-  live = await sh(`npm view ${PKG_NAME} version`, { silent: true })
-} catch {
-  /* 暂不可查 */
-}
-if (live === target) {
-  ok(`线上版本确认: ${PKG_NAME}@${live} ✅`)
-} else {
-  fail(`线上版本是 ${live || '(查不到)'}，与 ${target} 不符 — 发布可能失败，请手动核 npm 页面`)
-}
+// ── 阶段 8: 发布状态提示（发布在 CI，异步完成）──────────
+// 这里**不能**硬校验 npm：推 tag 只是触发 publish.yml，runner 排队 + 构建通常要 1~2 分钟，
+// 立刻 npm view 必然还是旧版本 —— 那会把「tag 已成功推上去」误报成发布失败。
+log('阶段 8/8  发布状态（CI 异步）')
+console.log(`  tag v${target} 已推送 → GitHub Actions 工作流 publish 正在用 OIDC 发布。`)
+console.log('  核验（等 1~2 分钟）：')
+console.log('    gh run list --workflow=publish.yml --limit 1')
+console.log(`    npm view ${PKG_NAME}@${target} version`)
+console.log('  转正为 latest（npm 的 dist-tag add 不支持 OIDC，必须人工带 2FA）：')
+console.log(`    npm dist-tag add ${PKG_NAME}@${target} latest`)
 
 console.log(`\n══════════════════════════════════════════`)
-console.log(`  ✅ 发布完成: ${PKG_NAME}@${target}`)
-console.log(`  npm:  ${isNext ? 'next' : 'latest'} tag`)
-console.log(`  git:  v${target} pushed`)
+console.log(`  ✅ tag 已推送: v${target}（发布由 CI 完成）`)
+console.log(`  npm:  publish.yml（OIDC）→ dist-tag next`)
+console.log(`  git:  main + v${target} pushed`)
 console.log(`══════════════════════════════════════════`)
 console.log(`\n下一步可选：`)
-console.log(`  · 若插件有功能变化，可更新 awesome-dsh-plugin 收录描述`)
 console.log(`  · 观察期建议: 装到新 profile 从 registry 重验一次`)
+console.log(`  · 若插件有功能变化，可更新 awesome-dsh-plugin 收录描述`)

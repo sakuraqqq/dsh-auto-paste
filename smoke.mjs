@@ -1,8 +1,9 @@
 // dsh-auto-paste self-test smoke — run from the plugin directory after build:
 //   node smoke.mjs
 // Covers: export surface, deterministic paste filename, a real write+readback
-// roundtrip into a workspace-local temp dir, workspace resolution logic, and
-// the hand-written Typert host manifest shape (what typert-loader validates).
+// roundtrip into an OS temp dir, workspace resolution logic, and the hand-written
+// Typert host manifest shape (what typert-loader validates) for EVERY invocation.
+import { tmpdir } from 'node:os'
 import { apply, name, savePasteTo, pasteFilename, resolveWorkspaceDir } from './dist/index.js'
 import { TYPERT } from './dist/typert.host.js'
 
@@ -23,10 +24,10 @@ console.log('pasteFilename:', fn)
 if (!/^\d{8}-\d{9}\.txt$/.test(fn) || fn !== '20260815-103000000.txt')
   fail('unexpected filename ' + fn)
 
-// 3. real write + readback roundtrip (workspace-local temp dir)
+// 3. real write + readback roundtrip (OS temp dir — never inside the plugin tree)
 const path = await import('node:path')
 const fs = await import('node:fs/promises')
-const dir = await fs.mkdtemp(path.join(process.cwd(), '..', '.smoke-'))
+const dir = await fs.mkdtemp(path.join(tmpdir(), 'dsh-auto-paste-smoke-'))
 try {
   const result = await savePasteTo(dir, 'hello paste\n第二行', testNow)
   console.log('savePasteTo ->', JSON.stringify(result))
@@ -74,37 +75,54 @@ if (resolveWorkspaceDir({ get: () => undefined }, 's1') !== undefined)
   fail('no registry must yield undefined')
 console.log('resolveWorkspaceDir OK (strict)')
 
-// 5. Typert host manifest shape (mirrors typert-loader validation)
+// 5. Typert host manifest shape (mirrors typert-loader validation).
+// EVERY invocation is walked: checking only invocations[0] would have shipped a
+// broken getConfig/setMinChars descriptor unnoticed.
 if (TYPERT.package !== 'dsh-auto-paste' || TYPERT.face !== 'host') fail('TYPERT identity wrong')
 if (!Array.isArray(TYPERT.schemas) || !Array.isArray(TYPERT.invocations))
   fail('TYPERT arrays wrong')
 if (typeof TYPERT.model !== 'object' || TYPERT.model === null) fail('TYPERT model missing')
-const inv = TYPERT.invocations[0]
-if (
-  !inv ||
-  inv.service !== 'pasteStore' ||
-  inv.namespace !== 'pasteStore' ||
-  inv.method !== 'savePaste'
-)
-  fail('invocation wrong')
-if (inv.invocation.kind !== 'direct') fail('receiver kind wrong')
-for (const p of inv.parameters) {
-  if (p.source !== 'json') fail('parameter source wrong')
+if (TYPERT.invocations.length === 0) fail('TYPERT declares no invocations')
+// The methods the client and the tools actually call — a missing one is a runtime
+// failure in the browser, and an extra one is a descriptor nobody asked for.
+const EXPECTED_METHODS = ['savePaste', 'getConfig', 'setMinChars']
+const seen = []
+for (const inv of TYPERT.invocations) {
+  if (!inv || inv.service !== 'pasteStore' || inv.namespace !== 'pasteStore')
+    fail(`invocation ${inv?.method}: unexpected service/namespace`)
+  if (typeof inv.method !== 'string' || inv.method.length === 0) fail('invocation without a method')
+  if (!String(inv.id ?? '').startsWith('dsh-auto-paste#')) fail(`invocation ${inv.method}: bad id`)
+  if (inv.invocation?.kind !== 'direct') fail(`invocation ${inv.method}: receiver kind wrong`)
+  if (!Array.isArray(inv.parameters)) fail(`invocation ${inv.method}: parameters must be an array`)
+  for (const p of inv.parameters) {
+    if (p.source !== 'json') fail(`invocation ${inv.method}: parameter source wrong`)
+    if (!(
+      p.codec.mode === 'strict' &&
+      '_zod' in p.codec.schema &&
+      typeof p.codec.schema.parse === 'function'
+    ))
+      fail(`invocation ${inv.method}: param codec not strict zod`)
+  }
   if (!(
-    p.codec.mode === 'strict' &&
-    '_zod' in p.codec.schema &&
-    typeof p.codec.schema.parse === 'function'
+    inv.result.mode === 'strict' &&
+    '_zod' in inv.result.schema &&
+    typeof inv.result.schema.parse === 'function'
   ))
-    fail('param codec not strict zod')
+    fail(`invocation ${inv.method}: result codec not strict zod`)
+  seen.push(inv.method)
 }
-if (!(
-  inv.result.mode === 'strict' &&
-  '_zod' in inv.result.schema &&
-  typeof inv.result.schema.parse === 'function'
-))
-  fail('result codec not strict zod')
-const parsed = inv.result.schema.parse({ path: 'p', absolutePath: 'a', bytes: 1, chars: 2 })
+for (const method of EXPECTED_METHODS) {
+  if (!seen.includes(method)) fail(`manifest is missing the ${method} invocation`)
+}
+if (seen.length !== EXPECTED_METHODS.length) fail(`unexpected invocation set: ${seen.join(', ')}`)
+const savePasteInvocation = TYPERT.invocations.find((inv) => inv.method === 'savePaste')
+const parsed = savePasteInvocation.result.schema.parse({
+  path: 'p',
+  absolutePath: 'a',
+  bytes: 1,
+  chars: 2,
+})
 console.log('result schema parse ->', JSON.stringify(parsed))
-console.log('typert manifest OK')
+console.log(`typert manifest OK (${seen.length} invocations: ${seen.join(', ')})`)
 
 console.log('SMOKE-OK')
