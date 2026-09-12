@@ -116,11 +116,19 @@ for (const method of EXPECTED_METHODS) {
 }
 if (seen.length !== EXPECTED_METHODS.length) fail(`unexpected invocation set: ${seen.join(', ')}`)
 const savePasteInvocation = TYPERT.invocations.find((inv) => inv.method === 'savePaste')
-// Boundary contract: the wire result must not carry the host's absolute path.
+// Wire contract: the browser half needs the absolute path (the sidebar's file API
+// refuses relative ones → 400), while the model-facing tool output stays narrowed.
 const resultKeys = Object.keys(savePasteInvocation.result.schema.shape).sort()
-if (resultKeys.join(',') !== 'bytes,chars,path')
-  fail(`savePaste result schema must be path/bytes/chars only, got: ${resultKeys.join(',')}`)
-const parsed = savePasteInvocation.result.schema.parse({ path: 'p', bytes: 1, chars: 2 })
+if (resultKeys.join(',') !== 'absolutePath,bytes,chars,path')
+  fail(
+    `savePaste result schema must be path/absolutePath/bytes/chars, got: ${resultKeys.join(',')}`,
+  )
+const parsed = savePasteInvocation.result.schema.parse({
+  path: 'p',
+  absolutePath: 'C:/tmp/p',
+  bytes: 1,
+  chars: 2,
+})
 console.log('result schema parse ->', JSON.stringify(parsed))
 console.log(`typert manifest OK (${seen.length} invocations: ${seen.join(', ')})`)
 

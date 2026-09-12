@@ -26,9 +26,9 @@ export const name = 'dsh-auto-paste'
 
 /**
  * Internal result of one saved paste, exactly as `savePasteTo` produces it. It
- * carries the absolute path for the host's own bookkeeping; anything that crosses
- * a boundary (the RPC result, the model tool output) is narrowed by
- * {@link publicPasteRef} first.
+ * carries the absolute path for the host's own bookkeeping; everything crossing a
+ * boundary is narrowed first — {@link publicPasteRef} for the model-facing tool
+ * output, {@link wirePasteRef} for the browser's RPC result.
  */
 export interface SavePasteResult {
   /** Workspace-relative path, forward slashes: pastes/20260815-103000.txt */
@@ -47,10 +47,10 @@ export interface SavePasteResult {
 }
 
 /**
- * The boundary shape: everything the web client and the model tool receive. The
- * absolute path stays host-side deliberately — it embeds the machine's user name
- * and directory layout, and no consumer needs it (the reference line already
- * shows the workspace-relative path).
+ * The MODEL-facing boundary shape (the `save_paste` tool output). The absolute path
+ * stays host-side here: it embeds the machine's user name and directory layout, and
+ * the model only needs something it can reference — which is exactly the
+ * workspace-relative path the reference line already shows.
  */
 export interface SavedPasteRef {
   /** Workspace-relative path, forward slashes: pastes/20260815-103000.txt */
@@ -61,9 +61,27 @@ export interface SavedPasteRef {
   chars: number
 }
 
-/** Narrow an internal write result to the boundary shape ({@link SavedPasteRef}). */
+/** Narrow an internal write result to the model-facing shape ({@link SavedPasteRef}). */
 export function publicPasteRef(result: SavePasteResult): SavedPasteRef {
   return { path: result.path, bytes: result.bytes, chars: result.chars }
+}
+
+/**
+ * The BROWSER-facing RPC shape: the boundary fields plus the absolute path, which
+ * the client must pass to third-party file APIs. The sidebar's editor refuses
+ * relative paths (`requireAbsolute` → 400 "… is not an absolute path"), so a
+ * capture opened via [查看] could be READ but never saved back. Deliberately kept
+ * out of {@link SavedPasteRef}: this path reaches our own browser half only, never
+ * the model's context.
+ */
+export interface SavedPasteWireRef extends SavedPasteRef {
+  /** Absolute filesystem path of the written file (browser half only). */
+  absolutePath: string
+}
+
+/** Widen a write result to the RPC shape ({@link SavedPasteWireRef}). */
+export function wirePasteRef(result: SavePasteResult): SavedPasteWireRef {
+  return { ...publicPasteRef(result), absolutePath: result.absolutePath }
 }
 
 /** Longest accepted `label` (chars) — keeps names far below path limits. */
@@ -434,7 +452,7 @@ class PasteStoreService extends TypertRemoteService {
   }
 
   /** Save one pasted text chunk into the session workspace's pastes/ dir. */
-  async savePaste(text: string, sessionId: string): Promise<SavedPasteRef> {
+  async savePaste(text: string, sessionId: string): Promise<SavedPasteWireRef> {
     // Runtime guard: the wire validates its own callers, but this is a public
     // service — a direct (in-process) caller can hand us anything, and the value
     // would otherwise travel to a filesystem write. Refuse it by name.
@@ -443,8 +461,9 @@ class PasteStoreService extends TypertRemoteService {
     }
     const dir = resolveWorkspaceDir(this.ctx, sessionId)
     if (dir === undefined) throw new Error('pasteStore: no workspace available to save the paste into')
-    // The absolute path never crosses the wire (see SavedPasteRef).
-    return publicPasteRef(await savePasteTo(dir, text, new Date(), this.maxBytes))
+    // The browser half also gets the absolute path: the sidebar's file API refuses
+    // relative ones, so [查看] would open a file it could never save back.
+    return wirePasteRef(await savePasteTo(dir, text, new Date(), this.maxBytes))
   }
 }
 
