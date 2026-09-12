@@ -159,6 +159,26 @@ describe('static regression guards — past bugs must not resurrect', () => {
     assert.match(body, /TEXTAREA/, 'legacy <textarea> composer must still match')
     assert.match(body, /isContentEditable/, 'dsh >= 0.1.5 contenteditable composer must match')
   })
+
+  test('src/client.js mounts a toast into dsh own composer-card overlay seat', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+    assert.match(
+      src,
+      /factory:\s*\(require\)/,
+      'the self-contained bundle needs the shared require',
+    )
+    assert.match(src, /require\('react'\)/, 'react is the platform seed word used to render')
+    assert.match(
+      src,
+      /slots\.inject\('conversation\.input\.overlay'/,
+      "the toast must register into dsh's own composer-card overlay seat (the seat its shipped input-bar toast points at), not a self-invented position",
+    )
+    assert.match(
+      src,
+      /id:\s*PACKAGE/,
+      'the overlay entry keeps its own id (additive, never replacing)',
+    )
+  })
 })
 
 describe('savePasteTo — concurrent same-timestamp saves (atomic, no TOCTOU)', () => {
