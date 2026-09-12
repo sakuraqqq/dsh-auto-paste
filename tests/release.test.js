@@ -294,17 +294,53 @@ describe('static regression guards — past bugs must not resurrect', () => {
     assert.equal(literals.length, 1, 'the reference literal must live in exactly one place')
   })
 
-  test('removal goes through the editor event pipeline, not raw DOM surgery', () => {
+  test('removal hands the edit to the editor as beforeinput, not through execCommand', () => {
     const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+    // Measured 2026-09-12 (dsh 0.1.5-rc.1 + Chrome, instrumented composer):
+    // `document.execCommand('delete')` empties the DOM text and fires only an
+    // `input` event — Lexical adopts edits through `beforeinput` alone, so with an
+    // unchanged model it re-rendered the reference straight back (textLen
+    // 53 → 0 → 53 inside that single command). The edit is therefore handed over in
+    // the shape Lexical's handler consumes: a `beforeinput` whose
+    // `getTargetRanges()` returns the reference's range.
+    //
+    // The assertions below run on CODE with block comments removed: the source is
+    // SUPPOSED to keep documenting the refuted command path in prose, and that
+    // history must not read as a violation.
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '')
     assert.match(
-      src,
+      code,
+      /new InputEvent\('beforeinput'/,
+      'the edit must be announced, not performed behind the editor',
+    )
+    assert.match(code, /inputType: 'deleteContentBackward'/)
+    assert.match(code, /getTargetRanges/, 'Lexical reads the target range from this method')
+    assert.doesNotMatch(
+      code,
       /execCommand\('delete'\)/,
-      'Lexical restores whatever it does not hear about, so deletion must be a browser edit command',
+      'the reverted command path must not come back as the deletion mechanism',
     )
     assert.doesNotMatch(
-      src,
+      code,
       /deleteContents\(\)[\s\S]{0,200}已保存大段粘贴/,
       'no hand-rolled deletion of the reference',
+    )
+  })
+
+  test('the removal verdict is read asynchronously and the fallback is actionable', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+    const start = src.indexOf('function removeCapture')
+    assert.ok(start >= 0, 'removeCapture must exist')
+    const body = src.slice(start, src.indexOf('function openCapture', start))
+    // The editor re-renders on its own schedule: right after the hand-off the DOM
+    // still shows the reference (measured: textLen 53 at dispatch, 0 one task
+    // later), so a synchronous verdict would report a failure that never happened.
+    assert.match(body, /window\.setTimeout\(/, 'the verdict must be read one task later')
+    assert.match(body, /按 Backspace 删除/, 'when the hand-off fails, say exactly what to press')
+    assert.match(
+      body,
+      /textRangeOf\(composer, capture\.ref\)/,
+      'the fallback re-selects the reference, so that key press really removes it',
     )
   })
 })
