@@ -14,8 +14,8 @@
 ## 当前状态
 
 - dsh 已全局安装，插件处于观察期
-- npm：`dsh-auto-paste@0.1.2`（latest）/ `0.1.1`（next）
-- 上架：PR #1688 待合并（awesome-dsh-plugin）
+- npm：`dsh-auto-paste@0.1.3`（latest）/ `0.1.3`（next）；**0.1.4 待发布**（2026-09-13 核）
+- 上架：PR #1688（awesome-dsh-plugin）—— 合并状态待核（2026-09-13）
 - 旧目录已冻结：不再写入，仅留档
 
 ## 迁移后待办

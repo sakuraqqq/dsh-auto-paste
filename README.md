@@ -32,13 +32,17 @@ MIT License — Copyright (c) 2026 misakamaster。
    把文本存入 pastes/<时间戳>.txt，并在回复中引用该工作区相对路径，不要复述原文。
    ```
 
+### 可选集成：dsh-better-sidebar（在侧栏查看/编辑粘贴文件）
+
+装了 `dsh-better-sidebar` 时，粘贴后出现的药丸会多一个 **「查看」** 按钮 —— 点击在侧栏的编辑器里打开该 `pastes/*.txt`，改完可直接保存回原文件；没装则只显示「✕ 移除引用」，其余功能完全不受影响。集成走**可选注入**（`ctx.inject(['betterSidebar'])` + `features.includes('openFile')` 能力门控）：服务缺席时既不会报错，也不会出现点不动的死按钮。
+
 ## Install / 安装与激活
 
 **方式一：从 npm 安装（推荐）**
 
 ```sh
 npm i dsh-auto-paste                          # 最新版（dist-tag: latest）；--save-exact 可锁版
-npm i dsh-auto-paste@0.1.2                    # 或指定版本
+npm i dsh-auto-paste@0.1.3                    # 或指定版本
 # 在插件父目录执行，以包名注册到目标 profile：
 dsh plugin --profile web add dsh-auto-paste
 dsh --profile web            # 重启 web profile，观察: [dsh-auto-paste] host ready ...
