@@ -751,3 +751,50 @@ describe('review batch A/B (2026-09-12) — release pipeline, wire cap, client h
     )
   })
 })
+
+describe('review batch C (2026-09-12) — frozen chars unit, absolute path stays host-side', () => {
+  const readSrc = (...parts) => readFileSync(join(PKG_ROOT, ...parts), 'utf8')
+  const readClient = () => readSrc('src', 'client.js')
+  const readHost = () => readSrc('src', 'index.ts')
+
+  // C1 — the unit is a frozen contract, not an accident: every reference line
+  // already sitting in old messages shows a number computed this way, so it gets
+  // DOCUMENTED (host, client, README) instead of silently changed.
+  test('C1: chars is documented as UTF-16 code units everywhere it surfaces', () => {
+    assert.match(readHost(), /UTF-16 code units/, 'the host result types must name the unit')
+    assert.match(readClient(), /UTF-16 code units/, 'the reference builder must name the unit')
+    assert.match(readSrc('README.md'), /UTF-16 code units/, 'the README must name the unit too')
+  })
+
+  // C2 — the absolute path embeds the machine's user name and directory layout;
+  // no consumer needs it, so the boundary carries path/bytes/chars only.
+  test('C2: publicPasteRef drops absolutePath and passes the rest through verbatim', async () => {
+    const { publicPasteRef } = await import('../dist/index.js')
+    const narrow = publicPasteRef({
+      path: 'pastes/20260815-103000.txt',
+      absolutePath: 'C:/Users/someone/ws/pastes/20260815-103000.txt',
+      bytes: 21,
+      chars: 15,
+    })
+    assert.deepEqual(Object.keys(narrow).sort(), ['bytes', 'chars', 'path'])
+    assert.deepEqual(narrow, { path: 'pastes/20260815-103000.txt', bytes: 21, chars: 15 })
+  })
+
+  test('C2: the savePaste wire result schema has no absolutePath', async () => {
+    const { TYPERT } = await import('../dist/typert.host.js')
+    const invocation = TYPERT.invocations.find((entry) => entry.method === 'savePaste')
+    assert.ok(invocation, 'the savePaste invocation must exist')
+    assert.deepEqual(Object.keys(invocation.result.schema.shape).sort(), ['bytes', 'chars', 'path'])
+  })
+
+  test('C2: the save_paste tool output schema is path/bytes/chars only', () => {
+    const src = readHost()
+    const start = src.indexOf('output: {')
+    assert.ok(start >= 0, 'the tool must declare an output schema')
+    const block = src.slice(start, src.indexOf('async execute', start))
+    for (const field of ['path', 'bytes', 'chars']) {
+      assert.match(block, new RegExp(`${field}: \\{ type:`), `${field} must stay declared`)
+    }
+    assert.doesNotMatch(block, /absolutePath/, 'the tool output must not leak the absolute path')
+  })
+})
