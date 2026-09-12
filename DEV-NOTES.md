@@ -154,3 +154,17 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
 - **`blur` 提醒**：不要用 `describe().user` 判"用户是否覆盖过"—— 只要 schema 里**不给 default**，`get(ns).<field> === undefined` 本身就是"未覆盖"，省掉一次 `describe()`。
 - **依赖**：pnpm 隔离布局下 `.pnpm` store 里的包**解析不到**（`ERR_MODULE_NOT_FOUND`）；用 `@deepseek-ai/schemastery` 必须写进 `peerDependencies` + `devDependencies` 再 `pnpm install`。链接目标确认：`@deepseek-ai+schemastery@3.18.2`（与 `dsh-settings` 同版本，无跨副本风险）。
 
+### 8.10 Lexical 里删除文本必须走编辑器管道；better-sidebar 契约与「别注册 viewer」（2026-09-12，E-2）
+- **铁律（新增）**：往 dsh 的 Lexical 内容编辑区改文本，**只做"浏览器编辑命令"**——
+  - 插入：`document.execCommand('insertText', false, text)`；
+  - 删除：先选中目标 Range，再 `document.execCommand('delete')`。
+  两者都会触发 `beforeinput`，编辑器才听得见；**手改 DOM（`range.deleteContents()` / `appendChild`）等于白干**——Lexical 以自己的 model 为准，下一次 render 会把 DOM 恢复回来。
+- **引用文本单一来源**：`pasteReference(path, chars)` 一个函数，插入与删除共用。守卫写法注意：`assert.doesNotMatch(src, /已保存大段粘贴为附件: \$\{/)` 是**错的**（构建函数本身就含这个字面量，必然误伤），正确姿势是**计数**：`(src.match(/已保存大段粘贴为附件/g) ?? []).length === 1`。
+- **better-sidebar（第三方，v0.19.0）集成契约**：`ctx.provide("betterSidebar", …)`，消费方 `ctx.get('betterSidebar')`。
+  - `readonly features: readonly string[]` —— 官方要求**按能力门控**（`features.includes('openFile')`），不要假设方法存在；`version` 同理。
+  - `openFile(scope, path, title?)`：在 `scope` 会话的侧栏编辑器打开文件；`SessionScope = { sessionId, cwd?, repoRoot? }`（`cwd` 可选）。
+  - `registerTab` / `registerFileViewer` 是另两个扩展点，但**注册 viewer 是按 `exts` 全局匹配**：`exts:['txt']` 会波及所有 txt 预览，而 `detect` 返回 false **仍会回落到 exts**，拦不住 → **结论：复用它的 `openFile` 就够，绝不注册 viewer**（它自带的文本编辑器/预览已经能显示任意 txt）。
+  - 它的设置页「侧边卡片」分区会给每个已注册项一个开关；想进它的内置推荐目录，要给它仓库 `plugins-tabs.ts` / `plugins-viewers.ts` 提一条 `PluginEntry` PR（可选加分项，不是必需）。
+  - `docs/external-plugin-guide.md` **不在 npm `files` 里**（装了也没有），要读得去 GitHub 仓库。
+- **复杂度门禁提醒**：往 `apply()` 里多塞两个逻辑分支就会撞 `cyc ≤ 10`（实测塞入 betterSidebar 探测后 `cyc=11` 被 `tools/metrics.mjs` 拦下）→ 探测逻辑抽成独立函数，别硬挤。
+
