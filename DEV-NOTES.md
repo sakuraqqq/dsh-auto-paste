@@ -93,9 +93,36 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
   2. 必须写非 ASCII 时**别用裸 `Add-Content`/`Set-Content`**：改用文件编辑工具，或 `[System.IO.File]::AppendAllText($p,$t,(New-Object System.Text.UTF8Encoding($false)))`（显式 UTF-8 **无 BOM**；PS 5.1 的 `-Encoding utf8` 会带 BOM，可能反过来弄坏首行 pattern）；
   3. 写完**必须回读校验**：`git check-ignore -v <file>` 命中 + UTF-8 合法（`read` 工具能读即合法）。
 - **亲缘**：与「改 `.ps1` 丢 BOM 炸启动器」**同族** —— PowerShell 的默认编码不可信；凡涉及非 ASCII 的读写，都要**显式指定编码 + 回读校验**。
+- **状态更新（2026-09-12，主链路迁 PowerShell 7 之后）**：已装 PS 7.6.6（`pwsh`）。**字节级探针实测**：PS7 的 `Set-Content`（无论是否带 `-Encoding utf8`）**默认就写 UTF-8 无 BOM**（拿到 `E6 B5 8B E8 AF 95…`= 「测试」的 UTF-8，而非 GBK `B2 E2 CA D4`）→ **本条的 ANSI 坑在主链路消失**。**但保留三条纪律**：① 写**仓库文本仍走文件工具**——PS 写文件默认 **CRLF**（探针末尾 `0D 0A`），会给 LF 仓库制造 diff 噪音；② `.cmd`/`.bat` 必须**无 BOM**（别用 `-Encoding utf8BOM`）；③ 读**遗留** ANSI/GBK 文件仍需显式 `-Encoding`（PS7 默认按 UTF-8 读）。
 
 ### 8.5 给用户终端命令一律单行（2026-09-12）
 - **现象**：给用户的 `gh release create ... \` 用了 **bash 的 `\` 续行**，而对面是 PowerShell（不认 `\` 续行）→ gh 只收到半条命令、转入交互提问，落单的 `\` 还被当成附件路径去上传 → `read \: Incorrect function` 失败。
 - **根因**：跨 shell 的续行符不通用（bash `\` / PowerShell 反引号 `` ` ``）。
 - **防再犯**：给用户的命令**一律写成单行**再贴；确需换行时按对方 shell 选续行符，并说明「整条复制」。
+
+### 8.6 PS7 下「捕获原生命令输出」会整条失败（2026-09-12）
+- **现象**：`$x = & git -c … rev-parse HEAD`、或 `"HEAD: " + (git … rev-parse HEAD)` 这类**捕获**写法报
+  `ResourceUnavailable: 程序'git.exe'运行失败： StandardOutputEncoding is only supported when standard output is redirected.`
+  —— 变量拿到空值，后面所有拼接/判断全错（危险：看起来像"命令没错，只是没输出"）。
+- **根因**：PS7 在**重定向/捕获**原生命令输出时会设置 `ProcessStartInfo.StandardOutputEncoding`；在当前宿主（DSH 的 pwsh 通道）下这个组合不被允许，于是原生命令**整个启动失败**（不是 git 的问题）。
+- **防再犯**：
+  1. 在 AI 侧跑 git 等原生命令时**不要捕获** —— 让输出直连控制台。查同步状态用 `git status -sb` 一行即可（`## main...origin/main` 无 `[ahead N]` 即同步），不需要 `rev-parse` + 比较。
+  2. 确需取值时，别反复试同一种写法 —— 改走不吃 `StandardOutputEncoding` 的路径（读文件、或写临时文件再 `read`）。
+  3. 看到这个报错**不要误判成"仓库/命令有问题"**：它纯粹是宿主与 PS7 的交互限制。
+
+### 8.7 插槽只管层级、不管位置：`shell.overlay` 里必须自己定位；dsh 自带 toast 的落点是 composer 卡内的 `conversation.input.overlay`（2026-09-12）
+- **现象**：给「保存成功」加的 toast 注册进 `shell.overlay`（槽目录里明写「a badge, **a toast stack** or a status pill all belong here」，`replaceRisk:"none"`），渲染出来却在**屏幕中上方**，不在输入框旁边。
+- **根因**：`shell.overlay` 的容器 CSS 只有两条规则 ——
+  `.pI_x6G_overlayLayer{z-index:20;pointer-events:none;position:absolute;inset:0}` 与 `.pI_x6G_overlayLayer>*{pointer-events:auto}`
+  —— **没有任何布局**。它是 `inset:0` 的块级盒子，于是 `display:flex;align-items:center` 的子元素就成了「整宽 + 水平居中 + 贴层顶」＝ 屏幕中上方。**「座位对」不等于「位置对」：这个槽只保证层级与点击穿透，落点由占用方自己负责。**
+- **正确座位＝dsh 自带 toast 的落点**：自带 toast 是 `jsx(Toast,{ text, anchor: cardRef.current })`，`anchor` 指向 **composer 卡片**（`<div ref={cardRef} className={InputBar.card} data-composer-card>`，`ui-conversation/lib/client.js:16051-16068`）；而卡内第一个子元素就是锚点槽：
+  ```jsx
+  <div className={InputBar.overlayAnchor}>{renderSlot('conversation.input.overlay', {})}</div>
+  ```
+  该锚条 CSS 为 `.uV2eYG_overlayAnchor{height:0;position:absolute;inset:0 0 auto}` ＝ **卡片顶边的零高度全宽锚条**。所以「走 dsh 既有 toast 位置」的具体做法是：注册进 `conversation.input.overlay`，再在锚条内 `position:absolute;left:0;right:0;bottom:8px` + `flex-direction:column` 向上生长（`bottom:8px` 相对零高度锚条＝卡片顶边上方 8px）。
+- **session 作用域不挡插件注册**：该槽是 `scope:"session"`，但**绑定来自渲染方** —— renderer 仅在「session 槽被无绑定地渲染」时才抛 `scope 'session' rendered without a standard-source binding`（`ui-renderer/lib/client.js:558`），而 composer 侧 `renderSlot(..., {})` **不做任何过滤/select**。因此 root fiber 直接
+  `slots.inject('conversation.input.overlay', () => slots.register({ name, id, order, label }, Comp))`
+  即可：`inject` 会等声明、按声明生命周期重跑、collapse 时 dispose（不会重复占用）。
+- **防再犯**：给 dsh 加浮层前，先用 `cordis_inspect_query`（Slots.listSubTree 看占用方与注册契约）**再读该槽容器的真实 CSS**；「目录说这槽是给 toast 的」只能证明**座位**对，证不了**落点**对。
+- **一句话教训**：插槽决定**层级**，占用方决定**位置**；想「和 dsh 一样」，就去找它渲染那件东西的**同一行 JSX**，别找一个听起来像的槽。
 
