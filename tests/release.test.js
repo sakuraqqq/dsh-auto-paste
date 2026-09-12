@@ -816,11 +816,34 @@ describe('review batch C (2026-09-12) — frozen chars unit, absolute path stays
     assert.deepEqual(narrow, { path: 'pastes/20260815-103000.txt', bytes: 21, chars: 15 })
   })
 
-  test('C2: the savePaste wire result schema has no absolutePath', async () => {
+  // D — the browser half needs the absolute path: the sidebar's file API refuses
+  // relative ones (`requireAbsolute` → 400 "… is not an absolute path"), so a
+  // capture opened via [查看] could be READ (the surface resolves addresses) but
+  // never saved back. The RPC result therefore carries the absolute path, while the
+  // MODEL-facing tool output stays narrowed — the assertions below pin that half.
+  test('D: the savePaste wire result carries the absolute path the sidebar needs', async () => {
     const { TYPERT } = await import('../dist/typert.host.js')
     const invocation = TYPERT.invocations.find((entry) => entry.method === 'savePaste')
     assert.ok(invocation, 'the savePaste invocation must exist')
-    assert.deepEqual(Object.keys(invocation.result.schema.shape).sort(), ['bytes', 'chars', 'path'])
+    assert.deepEqual(Object.keys(invocation.result.schema.shape).sort(), [
+      'absolutePath',
+      'bytes',
+      'chars',
+      'path',
+    ])
+  })
+
+  test('D: wirePasteRef adds exactly the absolute path to the boundary shape', async () => {
+    const { wirePasteRef } = await import('../dist/index.js')
+    const wire = wirePasteRef({
+      path: 'pastes/20260815-103000.txt',
+      absolutePath: 'C:/Users/someone/ws/pastes/20260815-103000.txt',
+      bytes: 21,
+      chars: 15,
+    })
+    assert.deepEqual(Object.keys(wire).sort(), ['absolutePath', 'bytes', 'chars', 'path'])
+    assert.equal(wire.path, 'pastes/20260815-103000.txt')
+    assert.equal(wire.absolutePath, 'C:/Users/someone/ws/pastes/20260815-103000.txt')
   })
 
   test('C2: the save_paste tool output schema is path/bytes/chars only', () => {
@@ -832,5 +855,28 @@ describe('review batch C (2026-09-12) — frozen chars unit, absolute path stays
       assert.match(block, new RegExp(`${field}: \\{ type:`), `${field} must stay declared`)
     }
     assert.doesNotMatch(block, /absolutePath/, 'the tool output must not leak the absolute path')
+  })
+})
+
+describe('review batch D (2026-09-13) — the sidebar receives a path it can write', () => {
+  test('D: [查看] hands better-sidebar the absolute spelling, with a relative fallback', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+    const start = src.indexOf('function openCapture')
+    assert.ok(start >= 0, 'openCapture must exist')
+    const body = src.slice(start, src.indexOf('const BAR_CSS', start))
+    assert.match(
+      body,
+      /capture\.absolutePath \?\? capture\.path/,
+      'the sidebar file API refuses relative paths — prefer the absolute one it can write',
+    )
+  })
+
+  test('D: the capture carries the absolute path the RPC result returned', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+    assert.match(
+      src,
+      /capture: \{[\s\S]{0,160}?absolutePath: result\.absolutePath/,
+      'the capture snapshot must keep the absolute path for the [查看] call',
+    )
   })
 })

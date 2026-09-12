@@ -427,7 +427,11 @@ window.__ModuleLoader__.load({
             const { capture } = captureState;
             if (!captureBelongsToCurrentSession(capture) || betterSidebar === null)
                 return;
-            betterSidebar.openFile({ sessionId: capture.sessionId }, capture.path);
+            // The sidebar's file API refuses relative paths (its host answers 400
+            // "… is not an absolute path"), which would leave the opened file readable
+            // but never savable. The RPC result carries the absolute path for exactly this
+            // call; the workspace-relative spelling stays as a fallback.
+            betterSidebar.openFile({ sessionId: capture.sessionId }, capture.absolutePath ?? capture.path);
         }
         const BAR_CSS = [
             '.dsh-auto-paste-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:40px;display:flex;align-items:center;',
@@ -767,7 +771,13 @@ window.__ModuleLoader__.load({
                     // The bar mirrors this exact reference, so it lives exactly as long as
                     // the text does in the composer (the input listener re-checks it).
                     publishCapture({
-                        capture: { path: result.path, chars: result.chars, ref, sessionId },
+                        capture: {
+                            path: result.path,
+                            absolutePath: result.absolutePath,
+                            chars: result.chars,
+                            ref,
+                            sessionId,
+                        },
                         present: true,
                     });
                 })
