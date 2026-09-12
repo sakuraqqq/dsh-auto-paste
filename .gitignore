@@ -4,6 +4,8 @@ node_modules/
 .pnpm-cache/
 pastes/
 *.tgz
+# release.mjs 阶段 7 给 gh release 用的临时 notes 文件（脚本跑完会留在工作区）
+.release-notes.md
 
 # 私档：内部笔记 / 交接文档 / 任务书等含本地环境信息（工作区·快照绝对路径）
 # 一律放这个目录，整目录不进公开仓库 —— 新增私密文档直接丢进去，不用再改规则。
