@@ -5,10 +5,12 @@
 // export, validates it, and registers the invocation so the host api-gateway
 // dispatches `pasteStore/savePaste` RPC calls from the web client.
 import { z } from 'zod';
-// Coarse character-level cap on the RPC wire (zod .max counts chars);
-// the host's savePasteTo applies the authoritative UTF-8 byte cap
-// (MAX_PASTE_BYTES = 1 MiB) before anything hits disk.
-const savePasteText$schema = z.string().max(1024 * 1024);
+// No character cap on the wire: zod's `.max` counts UTF-16 code units, while the
+// host owns the authoritative limit as UTF-8 BYTES (MAX_PASTE_BYTES = 1 MiB,
+// applied in savePasteTo before anything hits disk). Keeping a second, char-based
+// cap here means the wrong authority rejects first — and the two disagree by
+// design (one emoji is 1 char but 4 bytes). The host is the only cap.
+const savePasteText$schema = z.string();
 const savePasteSessionId$schema = z.string();
 const savePasteResult$schema = z.object({
     path: z.string(),

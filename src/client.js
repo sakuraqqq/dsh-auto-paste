@@ -43,6 +43,9 @@ window.__ModuleLoader__.load({
     // The connection the Settings row writes through. Captured in apply() because
     // the settings section renders the row with no props of its own.
     let connectionRef = null
+    // The sessions runtime, for the same reason: the capture bar renders OUTSIDE
+    // apply()'s closure and must know which session is on screen right now.
+    let sessionsRef = null
     // betterSidebar (OPTIONAL): the sidebar's own file API. Absent when that plugin
     // is not installed — the bar then offers removal only, never a dead button.
     let betterSidebar = null
@@ -85,6 +88,10 @@ window.__ModuleLoader__.load({
     /** How long one toast stays on screen. */
     const TOAST_MS = 2600
 
+    // Live auto-dismiss timers. Collected so teardown can cancel them: a timer
+    // that survives unload would fire into a disposed plugin.
+    const toastTimers = new Set()
+
     // Snapshot handed to useSyncExternalStore: a NEW array only when it changes,
     // the same reference otherwise (otherwise uSES re-renders forever).
     let toastList = []
@@ -106,10 +113,12 @@ window.__ModuleLoader__.load({
       const id = (toastSeq += 1)
       toastList = [...toastList, { id, text, level: level === 'error' ? 'error' : 'info' }]
       publishToasts()
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        toastTimers.delete(timer)
         toastList = toastList.filter((entry) => entry.id !== id)
         publishToasts()
       }, TOAST_MS)
+      toastTimers.add(timer)
     }
 
     // The seat is dsh's own: `conversation.input.overlay` renders inside the
@@ -258,6 +267,9 @@ window.__ModuleLoader__.load({
      * Insert text at the caret. execCommand is the primary path; setRangeText
      * covers textarea/input engines without it; the Selection API covers the
      * contenteditable composer when execCommand is unavailable.
+     *
+     * Returns whether the text really landed. The save-failure path has to know:
+     * reporting "pasted as-is" when nothing was inserted is a false promise.
      */
     function insertTextAtCaret(target, text) {
       target.focus()
@@ -269,8 +281,9 @@ window.__ModuleLoader__.load({
         inserted = true
       }
       if (!inserted && target.isContentEditable === true) {
-        insertIntoContentEditable(target, text)
+        inserted = insertIntoContentEditable(target, text) === true
       }
+      return inserted === true
     }
 
     // ---- capture bar (composer dock) ---------------------------------------
@@ -321,14 +334,35 @@ window.__ModuleLoader__.load({
       return range
     }
 
+    /** The agent session on screen right now, or null when there is none. */
+    function currentSessionId() {
+      const current = sessionsRef?.list?.getSnapshot?.().current
+      return current ? String(current) : null
+    }
+
+    /**
+     * A capture belongs to the session that MADE it. Sessions are switched
+     * constantly, and a bar left over from the previous one would sit on top of
+     * another session's composer — its [查看] button even opening that other
+     * session's file. So every read of the capture is filtered through this.
+     */
+    function captureBelongsToCurrentSession(capture) {
+      return capture !== null && capture.sessionId === currentSessionId()
+    }
+
     /**
      * Re-derive whether the reference is still in the composer. The bar exists
      * only while it is: once the user edits it away or sends the message, there is
-     * nothing left to remove and the bar disappears by itself.
+     * nothing left to remove and the bar disappears by itself. A capture from a
+     * session we have since left is dropped outright.
      */
     function refreshCapture() {
       const { capture } = captureState
       if (capture === null) return
+      if (!captureBelongsToCurrentSession(capture)) {
+        publishCapture({ capture: null, present: false })
+        return
+      }
       const root = composerElement()
       const present = root !== null && root.textContent.includes(capture.ref)
       if (present !== captureState.present) publishCapture({ capture, present })
@@ -364,7 +398,7 @@ window.__ModuleLoader__.load({
     /** Show the captured text in the sidebar editor (better-sidebar owns the view). */
     function openCapture() {
       const { capture } = captureState
-      if (capture === null || betterSidebar === null) return
+      if (!captureBelongsToCurrentSession(capture) || betterSidebar === null) return
       betterSidebar.openFile({ sessionId: capture.sessionId }, capture.path)
     }
 
@@ -387,7 +421,9 @@ window.__ModuleLoader__.load({
     /** The ambient bar over the composer: which paste, how big, view, remove. */
     function CaptureBar() {
       const { capture, present } = React.useSyncExternalStore(subscribeCapture, readCapture)
-      if (capture === null || present !== true) return null
+      if (capture === null || present !== true || !captureBelongsToCurrentSession(capture)) {
+        return null
+      }
       const actions = []
       if (betterSidebarCanOpen) {
         actions.push(
@@ -720,6 +756,7 @@ window.__ModuleLoader__.load({
       const sessions = ctx.sessions
       const connection = ctx.connection
       connectionRef = connection ?? null
+      sessionsRef = sessions ?? null
 
       ctx.inject(['betterSidebar'], (sidebarCtx) => {
         adoptBetterSidebar(sidebarCtx.get('betterSidebar') ?? null)
@@ -745,6 +782,12 @@ window.__ModuleLoader__.load({
           `[${PACKAGE}] toast surface unavailable (react=${React !== null}) — saves still work, just without the on-screen confirmation`,
         )
       }
+      // Unload hygiene: pending auto-dismiss timers must not fire into the
+      // disposed plugin, so they are all cancelled when this fiber tears down.
+      ctx.effect(() => () => {
+        for (const timer of toastTimers) clearTimeout(timer)
+        toastTimers.clear()
+      })
       if (!mountSettingsRow(ctx)) {
         console.warn(
           `[${PACKAGE}] settings row unavailable (react=${React !== null}) — minChars stays adjustable via cordis.patch.yml only`,
@@ -799,10 +842,16 @@ window.__ModuleLoader__.load({
             })
           })
           .catch((error) => {
-            // Never lose user data: on failure insert the original text.
+            // Never lose user data: on failure insert the original text — and
+            // report what actually happened, rather than assuming it worked.
             console.error(`[${PACKAGE}] paste save failed, falling back to raw text:`, error)
-            insertTextAtCaret(target, text)
-            showToast('大段粘贴保存失败，已按原样粘贴（内容未丢失）', 'error')
+            const inserted = insertTextAtCaret(target, text)
+            showToast(
+              inserted
+                ? '大段粘贴保存失败，已按原样粘贴回输入框'
+                : '大段粘贴保存失败，也没能自动插回输入框——内容还在剪贴板，请手动 Ctrl+V 重试',
+              'error',
+            )
           })
       }
 

@@ -615,3 +615,139 @@ describe('PasteSettingsSchema — the user layer this plugin owns', () => {
     }
   })
 })
+
+describe('review batch A/B (2026-09-12) — release pipeline, wire cap, client honesty', () => {
+  const readSrc = (...parts) => readFileSync(join(PKG_ROOT, ...parts), 'utf8')
+  const readClient = () => readSrc('src', 'client.js')
+  const readHost = () => readSrc('src', 'index.ts')
+
+  // A1 — the tag must point at the bump commit, and publishing belongs to
+  // .github/workflows/publish.yml (OIDC, triggered by the tag push).
+  test('release.mjs commits the version bump BEFORE tagging, and never publishes locally', () => {
+    const src = readSrc('scripts', 'release.mjs')
+    const commit = src.indexOf('git add package.json')
+    const tag = src.indexOf('git tag v')
+    assert.ok(commit >= 0, 'the version bump must be committed by the script')
+    assert.ok(tag >= 0, 'the script must still tag the release')
+    assert.ok(
+      commit < tag,
+      'commit → tag → push: a tag created before the bump points at the previous version',
+    )
+    assert.doesNotMatch(
+      src,
+      /sh\(`npm publish/,
+      'the script must not publish: the OIDC workflow does, on tag push',
+    )
+    assert.doesNotMatch(src, /--next/, 'the dist-tag is owned by publish.yml, not by this script')
+  })
+
+  // A2 — zod `.max` counts UTF-16 chars while the host enforces UTF-8 bytes;
+  // two authorities on one limit means the wrong one rejects first.
+  test('the savePaste wire schema carries no character cap — the host byte cap is the authority', async () => {
+    const { TYPERT } = await import('../dist/typert.host.js')
+    const invocation = TYPERT.invocations.find((entry) => entry.method === 'savePaste')
+    assert.ok(invocation, 'the savePaste invocation must exist')
+    const text = invocation.parameters.find((parameter) => parameter.name === 'text')
+    assert.ok(text, 'the text parameter must exist')
+    assert.equal(
+      text.codec.schema.safeParse('x'.repeat(2_000_000)).success,
+      true,
+      'the wire must not reject on character count — the host byte cap is authoritative',
+    )
+    assert.equal(text.codec.schema.safeParse(123).success, false, 'it is still a string codec')
+  })
+
+  // A3 — the fallback path claimed "content is not lost" without verifying it.
+  test('insertTextAtCaret reports whether the text landed, and nothing overclaims', () => {
+    const src = readClient()
+    const start = src.indexOf('function insertTextAtCaret')
+    assert.ok(start >= 0, 'insertTextAtCaret must exist')
+    assert.match(
+      src.slice(start, start + 700),
+      /return inserted/,
+      'the caller must be able to tell a real insertion from a silent failure',
+    )
+    assert.match(
+      src,
+      /const inserted = insertTextAtCaret\(target, text\)/,
+      'the save-failure fallback must check the result before reporting',
+    )
+    assert.doesNotMatch(
+      src,
+      /内容未丢失/,
+      'never promise the content survived unless the insertion was verified',
+    )
+  })
+
+  // A4 — a capture belongs to ONE session: its bar and its [查看] affordance
+  // must never appear on top of another session's composer.
+  test('the capture bar is bound to the session that produced the paste', () => {
+    const src = readClient()
+    assert.match(
+      src,
+      /capture\.sessionId === currentSessionId\(\)/,
+      'render and refresh must compare the capture session against the live one',
+    )
+    assert.match(
+      src,
+      /sessionsRef = sessions/,
+      'apply() must capture the sessions runtime so the comparison has a source',
+    )
+  })
+
+  // B1 — pastes can hold sensitive text: private dir/file modes on POSIX
+  // (Windows ignores `mode`, so this is additive there, not a behaviour change).
+  test('paste writes are private: 0700 directory, 0600 file', () => {
+    const src = readHost()
+    assert.match(src, /mkdir\(dirname\(base\), \{ recursive: true, mode: 0o700 \}\)/)
+    assert.match(src, /writeFile\(candidate, text, \{ flag: 'wx', mode: 0o600 \}\)/)
+  })
+
+  // B2 — savePaste is a public service: the wire validates, a direct caller may not.
+  test('PasteStoreService.savePaste guards its input type at runtime', () => {
+    const src = readHost()
+    const start = src.indexOf('async savePaste(')
+    assert.ok(start >= 0, 'savePaste must exist')
+    const body = src.slice(start, start + 500)
+    assert.match(body, /typeof text !== 'string'/, 'a non-string text must be refused by name')
+    assert.match(body, /throw new Error/, 'and refused loudly, with a message')
+  })
+
+  // B3 — a toast timer firing after unload writes into a disposed plugin.
+  test('toast timers are tracked and cleared when the plugin unloads', () => {
+    const src = readClient()
+    assert.match(src, /const toastTimers = new Set\(\)/, 'timers must be collected')
+    assert.match(src, /toastTimers\.add\(timer\)/, 'each timer must be registered')
+    assert.match(src, /clearTimeout\(timer\)/, 'and cleared on teardown')
+    assert.match(src, /toastTimers\.clear\(\)/, 'the collection itself must be emptied')
+  })
+
+  // B4 — the smoke test only ever looked at invocations[0], so a broken
+  // getConfig/setMinChars descriptor would have passed it.
+  test('smoke.mjs walks EVERY typert invocation and uses the OS temp area', () => {
+    const src = readSrc('smoke.mjs')
+    assert.match(
+      src,
+      /for \(const inv of TYPERT\.invocations\)/,
+      'every invocation must be validated, not just the first',
+    )
+    assert.doesNotMatch(src, /TYPERT\.invocations\[0\]/, 'no first-element shortcut may remain')
+    assert.match(src, /tmpdir\(\)/, 'temp dirs belong to the OS temp area, not the plugin tree')
+  })
+
+  // B5 — replace({}) resets the WHOLE namespace; a path-addressed unset removes
+  // exactly the one field this plugin owns.
+  test('setMinChars(null) unsets the single field, never the whole namespace', () => {
+    const src = readHost()
+    assert.match(
+      src,
+      /op: 'unset', path: \[MIN_CHARS_FIELD\]/,
+      'clearing must be a path-addressed unset of our own field',
+    )
+    assert.doesNotMatch(
+      src,
+      /settings\.replace\(/,
+      'replace({}) would wipe every field in the namespace, including ones we do not own',
+    )
+  })
+})

@@ -124,6 +124,15 @@ export interface PasteStoreConfig {
 }
 
 /**
+ * One path-addressed edit for `settings.mutate` — the write path that can REMOVE
+ * a field (`unset`), which neither a merge `update` nor a wholesale `replace`
+ * expresses without collateral damage.
+ */
+type SettingsPathOpLike =
+  | { op: 'set'; path: readonly string[]; value: unknown }
+  | { op: 'unset'; path: readonly string[] }
+
+/**
  * The slice of dsh's settings service this plugin uses, typed structurally
  * because `@deepseek-ai/dsh-settings` is not a dependency of this package: the
  * service arrives through the composition, so we only describe what we call.
@@ -132,7 +141,7 @@ interface SettingsServiceLike {
   register(ns: string, schema: unknown, options?: { applies?: 'live' | 'restart' }): unknown
   get(ns: string): unknown
   update(ns: string, patch: Record<string, unknown>): Promise<void>
-  replace(ns: string, section: Record<string, unknown>): Promise<void>
+  mutate(ns: string, ops: readonly SettingsPathOpLike[]): Promise<void>
 }
 
 /**
@@ -209,7 +218,10 @@ export async function savePasteTo(workspaceDir: string, text: string, now: Date 
   assertPasteSize(text, maxBytes)
   const rel = join('pastes', pasteFilename(now, label))
   const base = join(workspaceDir, rel)
-  await mkdir(dirname(base), { recursive: true })
+  // Private by default: a paste can hold anything the user copied. 0700/0600 are
+  // the POSIX answer (Windows ignores `mode`, where the per-user profile ACL
+  // already scopes access, so this is additive rather than a behaviour change).
+  await mkdir(dirname(base), { recursive: true, mode: 0o700 })
   // Atomic exclusive create: EEXIST means another writer (concurrent
   // same-timestamp save, or an existing file) claimed this name first —
   // bump the -n suffix and retry. No check-then-write race window.
@@ -217,7 +229,7 @@ export async function savePasteTo(workspaceDir: string, text: string, now: Date 
   for (let n = 0; ; n += 1) {
     const candidate = n === 0 ? base : join(workspaceDir, 'pastes', `${basename(rel, '.txt')}-${n}.txt`)
     try {
-      await writeFile(candidate, text, { flag: 'wx' })
+      await writeFile(candidate, text, { flag: 'wx', mode: 0o600 })
       target = candidate
       break
     } catch (error) {
@@ -369,9 +381,11 @@ class PasteStoreService extends TypertRemoteService {
   }
 
   /**
-   * Store the user's threshold, or clear it (`null`). Clearing uses `replace({})`
-   * because a merge-only patch cannot express removal — that is the only way
-   * back to the deployment default.
+   * Store the user's threshold, or clear it (`null`). Clearing is a path-addressed
+   * `unset` of OUR OWN field: `replace(ns, {})` resets the whole namespace (and
+   * would silently drop any field this plugin does not own), while a merge
+   * `update` cannot express removal at all. `mutate` is the precise way back to
+   * the deployment default.
    */
   async setMinChars(value: number | null): Promise<PasteStoreConfig> {
     const settings = this.settings()
@@ -381,7 +395,7 @@ class PasteStoreService extends TypertRemoteService {
       )
     }
     if (value === null) {
-      await settings.replace(PASTE_SETTINGS_NAMESPACE, {})
+      await settings.mutate(PASTE_SETTINGS_NAMESPACE, [{ op: 'unset', path: [MIN_CHARS_FIELD] }])
     } else {
       // Same validation as the row config, so both entry points reject identically.
       await settings.update(PASTE_SETTINGS_NAMESPACE, { [MIN_CHARS_FIELD]: resolveMinChars(value) })
@@ -391,6 +405,12 @@ class PasteStoreService extends TypertRemoteService {
 
   /** Save one pasted text chunk into the session workspace's pastes/ dir. */
   async savePaste(text: string, sessionId: string): Promise<SavePasteResult> {
+    // Runtime guard: the wire validates its own callers, but this is a public
+    // service — a direct (in-process) caller can hand us anything, and the value
+    // would otherwise travel to a filesystem write. Refuse it by name.
+    if (typeof text !== 'string') {
+      throw new Error(`pasteStore.savePaste: text must be a string (got ${typeof text})`)
+    }
     const dir = resolveWorkspaceDir(this.ctx, sessionId)
     if (dir === undefined) throw new Error('pasteStore: no workspace available to save the paste into')
     return savePasteTo(dir, text, new Date(), this.maxBytes)
