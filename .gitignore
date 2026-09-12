@@ -12,3 +12,4 @@ DEV-NOTES.md
 
 # task briefs stay local (ASCII glob; avoids ANSI-encoding pitfalls)
 TASK-*.md
+.script-archive/
