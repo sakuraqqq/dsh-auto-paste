@@ -15,6 +15,7 @@
 //
 import { join, dirname, basename, relative } from 'node:path'
 import { mkdir, writeFile } from 'node:fs/promises'
+import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -114,7 +115,44 @@ export interface PasteStoreConfig {
   minChars: number
   /** UTF-8 byte ceiling for one paste (host-enforced before anything is written). */
   maxBytes: number
+  /** Which layer the effective `minChars` came from. */
+  minCharsSource: 'user' | 'deployment'
+  /** The deployment default, so the row can say what "reset" returns to. */
+  deploymentMinChars: number
+  /** False when this deployment has no settings provider, so nothing can be stored. */
+  canConfigure: boolean
 }
+
+/**
+ * The slice of dsh's settings service this plugin uses, typed structurally
+ * because `@deepseek-ai/dsh-settings` is not a dependency of this package: the
+ * service arrives through the composition, so we only describe what we call.
+ */
+interface SettingsServiceLike {
+  register(ns: string, schema: unknown, options?: { applies?: 'live' | 'restart' }): unknown
+  get(ns: string): unknown
+  update(ns: string, patch: Record<string, unknown>): Promise<void>
+  replace(ns: string, section: Record<string, unknown>): Promise<void>
+}
+
+/**
+ * Settings namespace this plugin owns (`settings.register` requires a lowercase
+ * hyphenated identifier). The browser side backs it with a row in dsh's General
+ * settings section (`settings.general.item`).
+ */
+export const PASTE_SETTINGS_NAMESPACE = 'dsh-auto-paste'
+
+/** Field inside {@link PASTE_SETTINGS_NAMESPACE} carrying the user's threshold. */
+export const MIN_CHARS_FIELD = 'minChars'
+
+/**
+ * Durable user layer, deliberately `required(false)`: an absent field means "the
+ * user never overrode this", which is exactly what keeps `cordis.patch.yml` the
+ * deployment default instead of being shadowed by a schema default.
+ */
+export const PasteSettingsSchema = z.object({
+  [MIN_CHARS_FIELD]: z.natural().min(1).required(false),
+})
 
 /**
  * Resolve the configured `minChars`: `undefined` falls back to the default,
@@ -131,6 +169,22 @@ export function resolveMinChars(raw: unknown): number {
     throw new Error(`minChars must be positive (got ${raw})`)
   }
   return raw
+}
+
+/**
+ * Combine the two layers: a usable stored value wins, otherwise the deployment
+ * value. An unusable value on either side is ignored rather than trusted — the
+ * schema already refuses one at the document boundary, but this function stays
+ * total so a hand-edited document can never break the paste path.
+ */
+export function effectiveMinChars(
+  stored: unknown,
+  deployment: unknown,
+): { minChars: number; source: 'user' | 'deployment' } {
+  const usable = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isInteger(value) && value > 0
+  if (usable(stored)) return { minChars: stored, source: 'user' }
+  return { minChars: usable(deployment) ? deployment : MIN_CHARS_DEFAULT, source: 'deployment' }
 }
 
 /**
@@ -261,25 +315,78 @@ export function isRegisteredWorkspace(dir: string, workspaces: WorkspaceLike[]):
 
 /** Host service the web client calls via the connection RPC (`/api`). */
 class PasteStoreService extends TypertRemoteService {
-  /** Effective char threshold for capturing a paste (resolved once at boot). */
-  private readonly minChars: number
+  /** Deployment default char threshold, from the loader row config (cordis.patch.yml). */
+  private readonly deploymentMinChars: number
   /** Effective byte ceiling for one paste (resolved once at boot). */
   private readonly maxBytes: number
 
-  constructor(ctx: Context, minChars: number, maxBytes: number) {
+  constructor(ctx: Context, deploymentMinChars: number, maxBytes: number) {
     super(ctx, 'pasteStore')
-    this.minChars = minChars
+    this.deploymentMinChars = deploymentMinChars
     this.maxBytes = maxBytes
+  }
+
+  /** The settings service for this context, or undefined without a provider. */
+  private settings(): SettingsServiceLike | undefined {
+    return this.ctx.get('settings') as SettingsServiceLike | undefined
+  }
+
+  /** The effective threshold right now, together with the layer it came from. */
+  private effective(): { minChars: number; source: 'user' | 'deployment' } {
+    const stored = this.settingsValue()
+    return effectiveMinChars(stored?.[MIN_CHARS_FIELD], this.deploymentMinChars)
+  }
+
+  /** The user layer as stored, or undefined when nothing is stored (or no provider). */
+  private settingsValue(): Record<string, unknown> | undefined {
+    const value = this.settings()?.get(PASTE_SETTINGS_NAMESPACE)
+    return typeof value === 'object' && value !== null
+      ? (value as Record<string, unknown>)
+      : undefined
+  }
+
+  /** Build the wire payload the browser reads (and re-reads after every write). */
+  private config(): PasteStoreConfig {
+    const { minChars, source } = this.effective()
+    return {
+      minChars,
+      maxBytes: this.maxBytes,
+      minCharsSource: source,
+      deploymentMinChars: this.deploymentMinChars,
+      canConfigure: this.settings() !== undefined,
+    }
   }
 
   /**
    * The effective configuration, for the web client. This is the ONLY way the
    * threshold reaches the browser: a client bundle never receives the loader row
    * config, so without this call the client would be stuck on its own built-in
-   * default and the documented knob would be silently inert.
+   * default and the documented knob would be silently inert. Re-read on every
+   * call, so a preference saved in Settings applies without a restart.
    */
   getConfig(): PasteStoreConfig {
-    return { minChars: this.minChars, maxBytes: this.maxBytes }
+    return this.config()
+  }
+
+  /**
+   * Store the user's threshold, or clear it (`null`). Clearing uses `replace({})`
+   * because a merge-only patch cannot express removal — that is the only way
+   * back to the deployment default.
+   */
+  async setMinChars(value: number | null): Promise<PasteStoreConfig> {
+    const settings = this.settings()
+    if (settings === undefined) {
+      throw new Error(
+        'pasteStore.setMinChars: this deployment has no settings provider, so the preference cannot be stored — set minChars in cordis.patch.yml and restart dsh instead',
+      )
+    }
+    if (value === null) {
+      await settings.replace(PASTE_SETTINGS_NAMESPACE, {})
+    } else {
+      // Same validation as the row config, so both entry points reject identically.
+      await settings.update(PASTE_SETTINGS_NAMESPACE, { [MIN_CHARS_FIELD]: resolveMinChars(value) })
+    }
+    return this.config()
   }
 
   /** Save one pasted text chunk into the session workspace's pastes/ dir. */
@@ -315,6 +422,17 @@ export function apply(ctx: Context, config: { minChars?: number; maxBytes?: numb
       error,
     )
   }
+  // Declare the user-preference namespace when this deployment has a settings
+  // provider. Deliberately optional: a profile without settings still gets the
+  // plugin, it just keeps the cordis.patch.yml value (and the General row says so
+  // instead of failing).
+  ctx.inject(['settings'], (settingsCtx) => {
+    // `settings` is provided by the composition, so the Cordis Context type does
+    // not carry it; the cast only names the slice we call (SettingsServiceLike).
+    const settings = (settingsCtx as unknown as { settings: SettingsServiceLike }).settings
+    settings.register(PASTE_SETTINGS_NAMESPACE, PasteSettingsSchema, { applies: 'live' })
+  })
+
   new PasteStoreService(ctx, minChars, maxBytes)
 
   ctx.tools.register(defineTool({

@@ -35,6 +35,13 @@ window.__ModuleLoader__.load({
         const RPC_TIMEOUT_MS = 15000;
         // The startup config fetch is best-effort: never stall the listener.
         const CONFIG_TIMEOUT_MS = 5000;
+        // Live threshold the paste listener reads. Module scope rather than a closure
+        // inside apply(), because the Settings row writes it too: a preference saved
+        // there must reach the listener at once, with no page reload.
+        let minChars = DEFAULT_MIN_CHARS;
+        // The connection the Settings row writes through. Captured in apply() because
+        // the settings section renders the row with no props of its own.
+        let connectionRef = null;
         const name = 'dsh-auto-paste';
         // Wait until the connection carrier and the sessions runtime are live.
         const inject = ['sessions', 'connection'];
@@ -223,20 +230,45 @@ window.__ModuleLoader__.load({
                 insertIntoContentEditable(target, text);
             }
         }
-        /** Call the host pasteStore service over the existing connection RPC. */
-        async function savePaste(connection, sessionId, text) {
+        /**
+         * One `pasteStore` call over the existing connection RPC, with a timeout and
+         * the gateway's ok/error envelope unwrapped. The single place the wire shape
+         * is known, so the three callers cannot drift apart; the endpoint stays a
+         * literal at each call site, so the wire name is greppable where it is used.
+         */
+        async function callPasteStore(connection, endpoint, args, timeoutMs) {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
             try {
-                const result = await connection.rpc.call('/api', 'pasteStore/savePaste', { args: { text, sessionId } }, controller.signal);
+                const result = await connection.rpc.call('/api', endpoint, { args }, controller.signal);
                 if (result && result.ok && result.value)
                     return result.value;
                 const detail = result && result.error ? `${result.error.code}: ${result.error.message}` : 'unknown error';
-                throw new Error(`savePaste failed: ${detail}`);
+                throw new Error(`${endpoint} failed: ${detail}`);
             }
             finally {
                 clearTimeout(timer);
             }
+        }
+        /** Call the host pasteStore service over the existing connection RPC. */
+        async function savePaste(connection, sessionId, text) {
+            return callPasteStore(connection, 'pasteStore/savePaste', { text, sessionId }, RPC_TIMEOUT_MS);
+        }
+        /**
+         * Adopt a config payload from the host. Shared by the startup fetch and the
+         * Settings row, so both paths validate and report identically; returns false
+         * when the payload is unusable and the previous value stays in force.
+         */
+        function applyRemoteConfig(remote, origin) {
+            if (typeof remote.minChars === 'number' &&
+                Number.isInteger(remote.minChars) &&
+                remote.minChars > 0) {
+                minChars = remote.minChars;
+                console.log(`[${PACKAGE}] config from ${origin}: minChars=${remote.minChars} (${remote.minCharsSource}), maxBytes=${remote.maxBytes}`);
+                return true;
+            }
+            console.warn(`[${PACKAGE}] ${origin} sent an unusable minChars (${JSON.stringify(remote.minChars)}) — keeping the ${minChars}-char threshold`);
+            return false;
         }
         /**
          * Fetch the host's effective config. The paste decision has to be
@@ -244,45 +276,165 @@ window.__ModuleLoader__.load({
          * this runs once at startup instead of at paste time; the listener always
          * reads whichever value is current.
          */
-        async function fetchHostConfig(connection) {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), CONFIG_TIMEOUT_MS);
-            try {
-                const result = await connection.rpc.call('/api', 'pasteStore/getConfig', { args: {} }, controller.signal);
-                if (result && result.ok && result.value)
-                    return result.value;
-                const detail = result && result.error ? `${result.error.code}: ${result.error.message}` : 'unknown error';
-                throw new Error(`getConfig failed: ${detail}`);
+        function fetchHostConfig(connection) {
+            return callPasteStore(connection, 'pasteStore/getConfig', {}, CONFIG_TIMEOUT_MS);
+        }
+        // ---- General-settings row ----------------------------------------------
+        // dsh's own seat for "a single setting that needs no page of its own". Its
+        // doc is explicit that the row draws its own internals — copy, current value
+        // and write path are all ours — because the section projects no label and
+        // passes no props. Both read and write go through our own pasteStore RPC, so
+        // the row never needs the browser-side settings service.
+        const ROW_CSS = [
+            '.dsh-auto-paste-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:8px 0}',
+            '.dsh-auto-paste-row-main{display:flex;flex-direction:column;gap:2px;min-width:0}',
+            '.dsh-auto-paste-row-label{font-size:13px;line-height:20px}',
+            '.dsh-auto-paste-row-hint{font-size:12px;line-height:16px;opacity:.75}',
+            '.dsh-auto-paste-row-note{font-size:12px;line-height:16px;margin-top:2px;color:var(--dsw-alias-state-business-primary,inherit)}',
+            '.dsh-auto-paste-row-controls{display:flex;align-items:center;gap:8px;flex:none}',
+            '.dsh-auto-paste-row-input{box-sizing:border-box;width:104px;padding:4px 8px;border-radius:8px;font:inherit;font-size:13px;',
+            'border:.5px solid var(--dsw-alias-border-l3,rgba(127,127,127,.35));',
+            'background:var(--dsw-specific-input-major,transparent);color:inherit}',
+            '.dsh-auto-paste-row-button{padding:4px 10px;border:0;border-radius:8px;font:inherit;font-size:12px;cursor:pointer;',
+            'background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.16));color:inherit}',
+            '.dsh-auto-paste-row-button:disabled{opacity:.5;cursor:default}',
+        ].join('');
+        /** One line explaining where the effective value comes from, and what blocks saving. */
+        function thresholdHint(remote) {
+            if (remote === null)
+                return '正在读取 host 配置…';
+            if (remote.canConfigure === false) {
+                return '此部署没有 settings 提供方，无法在界面保存 —— 请改 cordis.patch.yml 的 minChars 并重启 dsh';
             }
-            finally {
-                clearTimeout(timer);
+            if (remote.minCharsSource === 'user') {
+                return `已自定义；部署默认值 ${remote.deploymentMinChars} 字符（cordis.patch.yml）`;
             }
+            return '跟随 cordis.patch.yml 的部署默认值';
+        }
+        /** The preference row: current value, save, and reset back to the deployment default. */
+        function SettingsMinCharsRow() {
+            const [remote, setRemote] = React.useState(null);
+            const [draft, setDraft] = React.useState('');
+            const [note, setNote] = React.useState('');
+            const [busy, setBusy] = React.useState(false);
+            const adopt = React.useCallback((next, message) => {
+                setRemote(next);
+                setDraft(String(next.minChars));
+                setNote(message);
+                applyRemoteConfig(next, 'settings');
+            }, []);
+            React.useEffect(() => {
+                let mounted = true;
+                if (connectionRef === null) {
+                    setNote('connection 未就绪 —— 刷新页面后重试');
+                    return undefined;
+                }
+                fetchHostConfig(connectionRef)
+                    .then((payload) => {
+                    if (mounted)
+                        adopt(payload, '');
+                })
+                    .catch((reason) => {
+                    if (mounted)
+                        setNote(`读取 host 配置失败：${reason.message}`);
+                });
+                return () => {
+                    mounted = false;
+                };
+            }, [adopt]);
+            const write = (value) => {
+                if (connectionRef === null)
+                    return;
+                setBusy(true);
+                setNote('');
+                callPasteStore(connectionRef, 'pasteStore/setMinChars', { value }, CONFIG_TIMEOUT_MS)
+                    .then((payload) => adopt(payload, value === null ? '已恢复部署默认值' : '已保存，立即生效'))
+                    .catch((reason) => setNote(`保存失败：${reason.message}`))
+                    .finally(() => setBusy(false));
+            };
+            const editable = remote !== null && remote.canConfigure !== false;
+            const submit = () => {
+                const parsed = Number(draft);
+                if (!Number.isInteger(parsed) || parsed <= 0) {
+                    setNote('请输入正整数（字符数）');
+                    return;
+                }
+                write(parsed);
+            };
+            return React.createElement('div', { className: 'dsh-auto-paste-row' }, React.createElement('div', { className: 'dsh-auto-paste-row-main' }, React.createElement('div', { className: 'dsh-auto-paste-row-label' }, '大段粘贴阈值'), React.createElement('div', { className: 'dsh-auto-paste-row-hint' }, `粘贴达到该字符数时保存为 pastes/ 附件，输入框里只留一行引用。${thresholdHint(remote)}`), note === ''
+                ? null
+                : React.createElement('div', { className: 'dsh-auto-paste-row-note' }, note)), React.createElement('div', { className: 'dsh-auto-paste-row-controls' }, React.createElement('input', {
+                className: 'dsh-auto-paste-row-input',
+                type: 'number',
+                min: 1,
+                step: 1,
+                value: draft,
+                disabled: !editable || busy,
+                'aria-label': '大段粘贴阈值（字符）',
+                onChange: (event) => setDraft(event.target.value),
+                onKeyDown: (event) => {
+                    if (event.key === 'Enter')
+                        submit();
+                },
+            }), React.createElement('button', {
+                type: 'button',
+                className: 'dsh-auto-paste-row-button',
+                disabled: !editable || busy,
+                onClick: submit,
+            }, '保存'), remote !== null && remote.minCharsSource === 'user'
+                ? React.createElement('button', {
+                    type: 'button',
+                    className: 'dsh-auto-paste-row-button',
+                    disabled: busy,
+                    onClick: () => write(null),
+                }, '恢复默认')
+                : null));
+        }
+        /**
+         * Additive entry in the General settings section (`settings.general.item`,
+         * replaceRisk "none": a fresh id sits beside the shipped rows). Returns false
+         * when the surface is unavailable — saving pastes never depends on it.
+         */
+        function mountSettingsRow(ctx) {
+            if (React === null)
+                return false;
+            const slots = ctx.get('slots');
+            if (slots === undefined || typeof slots.inject !== 'function')
+                return false;
+            ctx.effect(() => {
+                const style = document.createElement('style');
+                style.textContent = ROW_CSS;
+                document.head.appendChild(style);
+                return () => style.remove();
+            });
+            ctx.effect(() => slots.inject('settings.general.item', () => slots.register({
+                name: 'settings.general.item',
+                // 30 = right after the shipped composer-enter row (20).
+                id: PACKAGE,
+                order: 30,
+                label: '大段粘贴阈值',
+            }, SettingsMinCharsRow)));
+            return true;
         }
         function apply(ctx) {
             const sessions = ctx.sessions;
             const connection = ctx.connection;
-            // The host is the authority. Until its answer lands — or if it never does
-            // — the documented fallback applies, so the listener is never blocked.
-            let minChars = DEFAULT_MIN_CHARS;
+            connectionRef = connection ?? null;
+            // The host is the authority. Until its answer lands — or if it never does —
+            // the documented fallback (already sitting in `minChars`) stays in force, so
+            // the paste listener is never blocked on a round trip.
             if (connection) {
                 fetchHostConfig(connection)
-                    .then((remote) => {
-                    if (typeof remote.minChars === 'number' &&
-                        Number.isInteger(remote.minChars) &&
-                        remote.minChars > 0) {
-                        minChars = remote.minChars;
-                        console.log(`[${PACKAGE}] config from host: minChars=${remote.minChars}, maxBytes=${remote.maxBytes}`);
-                    }
-                    else {
-                        console.warn(`[${PACKAGE}] host sent an unusable minChars (${JSON.stringify(remote.minChars)}) — keeping the ${DEFAULT_MIN_CHARS}-char fallback`);
-                    }
-                })
+                    .then((remote) => applyRemoteConfig(remote, 'host'))
                     .catch((error) => {
-                    console.warn(`[${PACKAGE}] host config unavailable — keeping the ${DEFAULT_MIN_CHARS}-char fallback threshold:`, error);
+                    console.warn(`[${PACKAGE}] host config unavailable — keeping the ${minChars}-char fallback threshold:`, error);
                 });
             }
             if (!mountToastSurface(ctx)) {
                 console.warn(`[${PACKAGE}] toast surface unavailable (react=${React !== null}) — saves still work, just without the on-screen confirmation`);
+            }
+            if (!mountSettingsRow(ctx)) {
+                console.warn(`[${PACKAGE}] settings row unavailable (react=${React !== null}) — minChars stays adjustable via cordis.patch.yml only`);
             }
             const onPaste = (event) => {
                 const target = event.target;

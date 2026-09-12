@@ -10,12 +10,14 @@
     - id: dsh-auto-paste
       name: dsh-auto-paste
       config:
-        # Large-paste threshold (chars). The HOST is the single authority: a
-        # client bundle never receives a row config (dsh.client accepts only
-        # platform/inject/external/immediately, and the boot graph carries no
-        # config), so the web client fetches the effective value over the
-        # pasteStore/getConfig RPC at startup and falls back to 500 if that
-        # fails. Change here + restart dsh — no rebuild needed.
+        # Large-paste threshold (chars) — the DEPLOYMENT DEFAULT. A user can
+        # override it in Settings → General ("大段粘贴阈值"); that override lives in
+        # dsh's settings document, applies live, and is what "恢复默认" clears.
+        # One authority either way: a client bundle never receives a row config
+        # (dsh.client accepts only platform/inject/external/immediately, and the
+        # boot graph carries no config), so the web client fetches the effective
+        # value over the pasteStore/getConfig RPC. Change here + restart dsh —
+        # no rebuild needed.
         minChars: 500
         # Byte ceiling for one paste (host-enforced before anything is written).
         # Default 1048576 (1 MiB); hard ceiling 67108864 (64 MiB) — over that the

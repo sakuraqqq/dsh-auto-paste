@@ -17,6 +17,10 @@ import {
   sanitizeLabel,
   resolveMaxBytes,
   resolveMinChars,
+  effectiveMinChars,
+  PasteSettingsSchema,
+  PASTE_SETTINGS_NAMESPACE,
+  MIN_CHARS_FIELD,
   MAX_PASTE_BYTES,
   MAX_PASTE_BYTES_CAP,
   MIN_CHARS_DEFAULT,
@@ -230,6 +234,36 @@ describe('static regression guards — past bugs must not resurrect', () => {
     assert.match(src, /id: 'dsh-auto-paste#pasteStore\/getConfig'/)
     assert.match(src, /method: 'getConfig'/)
     assert.match(src, /minChars: z\.number\(\)/)
+    assert.match(
+      src,
+      /minCharsSource: z\.string\(\)/,
+      'getConfig must report where the effective value came from',
+    )
+    assert.match(
+      src,
+      /canConfigure: z\.boolean\(\)/,
+      'getConfig must report whether the preference can be stored at all',
+    )
+  })
+
+  test('the client contributes a General settings row that writes through the host', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+    assert.match(
+      src,
+      /slots\.inject\('settings\.general\.item'/,
+      "dsh's own seat for a single setting that needs no page of its own",
+    )
+    assert.match(
+      src,
+      /pasteStore\/setMinChars/,
+      'the row persists through the host — the browser cannot touch the settings document',
+    )
+  })
+
+  test('src/typert.host.ts declares the pasteStore/setMinChars invocation', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'typert.host.ts'), 'utf8')
+    assert.match(src, /id: 'dsh-auto-paste#pasteStore\/setMinChars'/)
+    assert.match(src, /method: 'setMinChars'/)
   })
 })
 
@@ -476,6 +510,65 @@ describe('resolveMinChars — the host is the single authority for the paste thr
         () => resolveMinChars(value),
         (err) => err instanceof Error && /minChars/.test(err.message),
         `expected rejection for ${String(value)}`,
+      )
+    }
+  })
+})
+
+describe('effectiveMinChars — the user preference wins, otherwise the deployment default', () => {
+  test('a valid stored value beats the deployment value', () => {
+    assert.deepEqual(effectiveMinChars(2000, 800), { minChars: 2000, source: 'user' })
+    assert.deepEqual(effectiveMinChars(1, MIN_CHARS_DEFAULT), { minChars: 1, source: 'user' })
+  })
+
+  test('without a stored value the deployment value applies', () => {
+    assert.deepEqual(effectiveMinChars(undefined, 800), { minChars: 800, source: 'deployment' })
+    assert.deepEqual(effectiveMinChars(undefined, MIN_CHARS_DEFAULT), {
+      minChars: MIN_CHARS_DEFAULT,
+      source: 'deployment',
+    })
+  })
+
+  test('an unusable stored value never wins and never throws', () => {
+    for (const bad of [0, -5, 1.5, '2000', null, true, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.deepEqual(
+        effectiveMinChars(bad, 800),
+        { minChars: 800, source: 'deployment' },
+        `a stored ${String(bad)} must not be honoured`,
+      )
+    }
+  })
+
+  test('an unusable deployment value falls back to the documented default', () => {
+    for (const bad of [undefined, 0, -1, 1.5, 'big', null]) {
+      assert.deepEqual(effectiveMinChars(undefined, bad), {
+        minChars: MIN_CHARS_DEFAULT,
+        source: 'deployment',
+      })
+    }
+  })
+})
+
+describe('PasteSettingsSchema — the user layer this plugin owns', () => {
+  test('the namespace is a lowercase hyphenated identifier (a dsh requirement)', () => {
+    assert.equal(PASTE_SETTINGS_NAMESPACE, 'dsh-auto-paste')
+    assert.match(PASTE_SETTINGS_NAMESPACE, /^[a-z][a-z0-9-]*$/)
+    assert.equal(MIN_CHARS_FIELD, 'minChars')
+  })
+
+  test('an absent field is valid and means "not overridden"', () => {
+    assert.equal(PasteSettingsSchema({})[MIN_CHARS_FIELD], undefined)
+  })
+
+  test('a positive integer round-trips', () => {
+    assert.equal(PasteSettingsSchema({ minChars: 2000 })[MIN_CHARS_FIELD], 2000)
+  })
+
+  test('zero, negatives, fractions and strings are refused by the schema itself', () => {
+    for (const bad of [0, -1, 1.5, '2000']) {
+      assert.throws(
+        () => PasteSettingsSchema({ minChars: bad }),
+        `expected the stored section to be refused for ${String(bad)}`,
       )
     }
   })

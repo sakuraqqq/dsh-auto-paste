@@ -143,3 +143,14 @@ dsh 插件：**Web 输入框粘贴大段文本（>500 字符）时，自动保�
   ```
   （`requireStrictCodec` 另有两条硬要求：`mode === 'strict'`，且 `schema` 必须是**裸 zod v4 对象** —— `'_zod' in schema && typeof schema.parse === 'function'`。）
 
+### 8.9 给 dsh 加「设置项」的正确姿势：schemastery + `settings.general.item`（2026-09-12，C-2）
+- **座位**：单行偏好用客户端槽 `settings.general.item`（list / root / `replaceRisk:"none"`），现有占用方 `permission(-20) / language(0) / appearance(10) / font-size(11) / transcript-view(12) / composer-enter(20)`。**独占一整页**才用 `settings.section`。
+- **关键契约（别猜）**：该槽 doc 原文 —— 「a row draws its own internals, including its label: **nothing projects a `label` here and the owner passes no props at all** — copy, current value, and the write path are all yours」。`ownerProps` 确实是空接口。所以标签、取值、写回都要自己来。
+- **host 侧 schema 是 schemastery，不是 zod**：`import z from '@deepseek-ai/schemastery'`（`dsh-settings` 的 peerDependency，范围 `^3.18.2`）。例：`dsh-client-ui-conversation/lib/index.js:13` 的 `z.object({ busyEnter: z.union([...]).default('queue') })`。
+- **正整数写法**（库内通用）：`z.natural().min(1).default(N)`；**「未设置」语义**用 `z.natural().min(1).required(false)`（范本 `dsh-client-locale:13` 就是这么写的）。**实测语义**：`schema({})` → `{}`（字段不存在＝未覆盖）；`0 / -1 / 1.5 / '2000'` 全部抛错且**不做类型强转**（字符串不会被悄悄转成数字）。
+- **注册要走可选注入**：`ctx.inject(['settings'], (settingsCtx) => { settingsCtx.settings.register(NS, Schema, { applies: 'live' }) })`。**命名空间必须是小写连字符**（`dsh-auto-paste` ✓，否则 `TypeError`）。用 `ctx.inject` 而不是 `export const inject`：没装 settings 提供方的 profile 也要能加载（只是存不了偏好）。
+- **TS 坑**：`@deepseek-ai/dsh-settings` 不是我们的依赖，所以 `Context` 上没有 `settings` —— 直接写 `settingsCtx.settings` 会 `TS2339`。正解：定义一个结构化接口（只写我们真正调用的 `register/get/update/replace`），在 `ctx.inject` 回调里 cast 一次。
+- **写与清**：`update(ns, patch)` 合并；**清空/恢复默认必须用 `replace(ns, {})`** —— merge 语义表达不了"删除"，这是唯一回到部署默认值的路径。
+- **`blur` 提醒**：不要用 `describe().user` 判"用户是否覆盖过"—— 只要 schema 里**不给 default**，`get(ns).<field> === undefined` 本身就是"未覆盖"，省掉一次 `describe()`。
+- **依赖**：pnpm 隔离布局下 `.pnpm` store 里的包**解析不到**（`ERR_MODULE_NOT_FOUND`）；用 `@deepseek-ai/schemastery` 必须写进 `peerDependencies` + `devDependencies` 再 `pnpm install`。链接目标确认：`@deepseek-ai+schemastery@3.18.2`（与 `dsh-settings` 同版本，无跨副本风险）。
+
