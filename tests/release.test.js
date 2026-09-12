@@ -265,6 +265,48 @@ describe('static regression guards — past bugs must not resurrect', () => {
     assert.match(src, /id: 'dsh-auto-paste#pasteStore\/setMinChars'/)
     assert.match(src, /method: 'setMinChars'/)
   })
+
+  test('the capture bar sits in a seat dsh actually paints, and reuses betterSidebar', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+    // Seat choice is evidence-driven: conversation.composer.dock laid the pill out
+    // (probe: rect 333x24, real box) inside a class-less wrapper the host never
+    // paints, so the bar moved into the composer overlay anchor — the very strip
+    // the shipped input-bar toast visibly uses.
+    assert.match(
+      src,
+      /slots\.inject\('conversation\.input\.overlay'/,
+      'the bar shares the proven-visible composer overlay seat',
+    )
+    assert.match(
+      src,
+      /features\.includes\('openFile'\)/,
+      'the openFile capability must be probed before use (the documented gate)',
+    )
+    assert.match(src, /\.openFile\(/, 'viewing a paste is one betterSidebar call')
+  })
+
+  test('the reference string has ONE source, used by both insert and remove', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+    assert.match(src, /function pasteReference\(/, 'the reference builder must be a named function')
+    const uses = src.match(/pasteReference\(/g) ?? []
+    assert.ok(uses.length >= 2, 'insertion and removal must both go through the same builder')
+    const literals = src.match(/已保存大段粘贴为附件/g) ?? []
+    assert.equal(literals.length, 1, 'the reference literal must live in exactly one place')
+  })
+
+  test('removal goes through the editor event pipeline, not raw DOM surgery', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+    assert.match(
+      src,
+      /execCommand\('delete'\)/,
+      'Lexical restores whatever it does not hear about, so deletion must be a browser edit command',
+    )
+    assert.doesNotMatch(
+      src,
+      /deleteContents\(\)[\s\S]{0,200}已保存大段粘贴/,
+      'no hand-rolled deletion of the reference',
+    )
+  })
 })
 
 describe('savePasteTo — concurrent same-timestamp saves (atomic, no TOCTOU)', () => {
