@@ -1,6 +1,6 @@
 # dsh-auto-paste 发布检查清单（Release Checklist）
 
-> 状态：E2E 已通过（2026-08-15）；许可切换 ✅（2026-08-16）；**0.1.4 已发布到 `next`**（2026-09-13，OIDC），转正 `latest` 待定。
+> 状态：E2E 已通过（2026-08-15）；许可切换 ✅（2026-08-16）；**0.1.4 已转正 `latest`**（2026-09-15，线上实测 `{"latest":"0.1.4","next":"0.1.4"}`）；GitHub Release `v0.1.4` 已标 `Latest`。
 > 提交链：47ad2d8 → 3a832c3 → aa59f46 → 343cbf6 → 25c4a2a → db4333b（许可切换 MIT）→ e4e8b1f（记录 v0.1.0 发布）
 > 发布标准：**全自动 E2E 通过**。半自动方案（save_paste 兜底）不发布。
 > **已发布**：dsh-auto-paste@0.1.0（2026-08-16，官方源 registry.npmjs.org，dist-tag `next`，GitHub 源仓库 https://github.com/sakuraqqq/dsh-auto-paste tag v0.1.0）。
@@ -8,7 +8,7 @@
 > **0.1.3 已发布**（2026-09-10，官方源）——适配 **dsh 0.1.5-rc.1**：composer 由 `<textarea>` 改为 Lexical `contenteditable` 导致大段粘贴静默失效，已修 client 判定与插入路径；依赖线升 `0.1.5-rc.1`；首落 P1/P2/P3 质量门（eslint+prettier · `tools/metrics.mjs` 复杂度硬门禁 · GitHub Actions CI）。发布后核验：`versions` 含 `0.1.3`、shasum `a7831365fec080ca02c1bfc31614ecd37285bea9`（与本地打包一致）、tag `v0.1.3` → commit `d8c5a60`。
 > **0.1.3 转正 + GitHub Release（2026-09-12 完成）**：`latest` 已由 0.1.2 → **0.1.3**（线上实测 `{"latest":"0.1.3","next":"0.1.3"}`）；Release **v0.1.3** 已建并标 `Latest`（notes 源 = `RELEASE-NOTES-v0.1.3.md`）。⚠️ 「≥3 天观察期」由用户拍板**跳过**（9/10 发、9/12 转），记录在案以备复盘。
 > 注：`dist-tag add` 不支持 OIDC（npm 限制），转正必须人工带 2FA；**发版**已由 `.github/workflows/publish.yml`（OIDC）自动化。
-> **0.1.4 已发布**（2026-09-13，官方源，`dist-tag: next`；`latest` 仍 0.1.3 待转正）——四批审查修复已入 `main`：`5a0dd2f`（A/B）· `875f3cd`（C）· `e3ded0d`（D）· `437be21`（D2）。
+> **0.1.4 已发布并转正**（2026-09-13 发到 `next` → 2026-09-15 转 `latest`）——四批审查修复已入 `main`：`5a0dd2f`（A/B）· `875f3cd`（C）· `e3ded0d`（D）· `437be21`（D2）。
 > 内容：发布链路修正（顺序 commit → tag → push，发布交给 OIDC）· wire 去掉字符上限（host 字节校验唯一权威）· 保存失败如实回报 ·
 > 药丸按会话绑定 · ✕「移除引用」改派发 `beforeinput`（`execCommand('delete')` 实测被 Lexical 还原）·
 > 侧栏「查看」改传绝对路径（相对路径被 `requireAbsolute` 拒 → 400）· 粘贴文件 0700/0600 · `savePaste` 运行时类型守卫 ·
@@ -17,7 +17,15 @@
 > 发布前审查（2026-09-13）：隐私 **0 真命中** / 版权通过 / 70 项测试 + 四门禁全绿；完整记录见 `.私档/REVIEW-20260913-推送前审查.md`（含本机路径，故留私档）。
 > 发布后核验（2026-09-13 实测 registry.npmjs.org）：`versions` 含 `0.1.4`、发布时间 `2026-09-12T16:44:22Z`、
 > 发布者 **GitHub Actions（OIDC trusted publisher + provenance attestation）**、`gitHead=5f4afda`（= 本地 release 提交）、
-> `fileCount=10`、`shasum=b67b992b0503884d7fc45d1d3889ffb90520f6e9`；`dist-tags: next=0.1.4 / latest=0.1.3`。
+> `fileCount=10`、`shasum=b67b992b0503884d7fc45d1d3889ffb90520f6e9`；发布时 `dist-tags: next=0.1.4 / latest=0.1.3`。
+> **0.1.4 转正（2026-09-15）**：`npm dist-tag add dsh-auto-paste@0.1.4 latest` → 线上实测 `{"latest":"0.1.4","next":"0.1.4"}`。
+> ⚠️ 「≥3 天观察期」由用户拍板**跳过**（9/13 发、9/15 转，与 0.1.3 同样处置），记录在案以备复盘。
+> ⚠️ 转正踩过的坑（2026-09-15 首次失败）：报 **E401 unknown token** —— 原因是 `~/.npmrc` 里残留的
+> `//registry.npmjs.org/:_authToken`（旧 granular token，已失效/被撤销）覆盖了交互登录态。修法：**先
+> `npm config delete //registry.npmjs.org/:_authToken`，再 `npm login`**，然后重跑 `dist-tag add`；
+> 转正完成后本地 token 可以删掉（发版已全走 OIDC，本地只需这一次人工 2FA）。
+> GitHub Release `v0.1.4` 由 `release.mjs` 阶段 7 自动创建并标 `Latest`；但其 notes 是脚本生成的 commit 列表、
+> 不是 `RELEASE-NOTES-v0.1.4.md`（0.1.3 用的是后者）→ **0.1.5 改进项**：阶段 7 优先采用仓库里的 `RELEASE-NOTES-v<版本>.md`。
 
 ## 0. 观察期并行检查（自用期间顺手做，第 3 天汇总）
 
