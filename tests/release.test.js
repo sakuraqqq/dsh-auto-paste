@@ -880,3 +880,73 @@ describe('review batch D (2026-09-13) — the sidebar receives a path it can wri
     )
   })
 })
+
+describe('0.1.5-① — the bar says so when no sidebar is installed', () => {
+  const readClient = () => readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+  const count = (src, re) => (src.match(re) ?? []).length
+  const from = (src, marker, span = 900) => {
+    const start = src.indexOf(marker)
+    assert.ok(start >= 0, `${marker} must exist in src/client.js`)
+    return src.slice(start, start + span)
+  }
+
+  test('the one-shot hint exists, with a single source of copy', () => {
+    const src = readClient()
+    assert.equal(
+      count(src, /没装 dsh-better-sidebar/g),
+      1,
+      'the hint copy must appear exactly once (built once, reused by the bar)',
+    )
+  })
+
+  test('showing the hint once is remembered, and a throwing localStorage cannot break the bar', () => {
+    const src = readClient()
+    assert.equal(
+      count(src, /'dsh-auto-paste:sidebar-hint'/g),
+      1,
+      'one storage key, referenced once',
+    )
+    const reader = from(src, 'function readSidebarHint')
+    assert.match(reader, /localStorage\.getItem\(SIDEBAR_HINT_KEY\)/, 'the memory is read back')
+    const marker = from(src, 'function markSidebarHintSeen')
+    assert.match(marker, /localStorage\.setItem\(SIDEBAR_HINT_KEY, '1'\)/, 'and written when shown')
+    assert.match(marker, /catch \(error\)/, 'private mode throws on write — that must not surface')
+  })
+
+  test('a service that was EVER adopted suppresses the hint forever', () => {
+    const src = readClient()
+    assert.match(
+      src,
+      /let betterSidebarEverAdopted = false/,
+      'the latch must exist: ctx.inject dispose calls adopt(null) on every reload',
+    )
+    assert.match(
+      from(src, 'function adoptBetterSidebar', 1200),
+      /if \(service !== null\) betterSidebarEverAdopted = true/,
+      'adopting a real service must latch it',
+    )
+    const verdict = from(src, 'function shouldOfferSidebarHint', 600)
+    assert.match(
+      verdict,
+      /betterSidebarEverAdopted/,
+      'the verdict must consult the latch, never the live value alone',
+    )
+    assert.match(verdict, /readSidebarHint\(\)/, 'and the one-shot memory, so it nags at most once')
+  })
+
+  test('the General settings row explains the gap, and disappears once the sidebar is there', () => {
+    const src = readClient()
+    assert.equal(count(src, /未检测到 dsh-better-sidebar/g), 1, 'one settings-row explainer')
+    const row = from(src, 'function SettingsSidebarRow', 1200)
+    assert.match(row, /betterSidebarEverAdopted/, 'the row must hide once the sidebar is installed')
+  })
+
+  test('the second settings row does not reuse the first row id (a list slot throws)', () => {
+    const src = readClient()
+    assert.match(
+      src,
+      /id: `\$\{PACKAGE\}:sidebar`/,
+      'the explainer needs its own id: a second entry at the same id at the same priority throws',
+    )
+  })
+})
