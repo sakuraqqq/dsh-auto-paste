@@ -525,6 +525,15 @@ window.__ModuleLoader__.load({
                 return false;
             return !readSidebarHint();
         }
+        /**
+         * One action button of the bar. Its two call sites were the same shape spelled out
+         * twice — `button` + `type: 'button'` + the bar's button class + an optional `title` —
+         * which let any of those drift apart between them. Nothing else uses it: the hint's
+         * close button carries a different class and sits outside the actions array.
+         */
+        function barButton({ key, label, title, onClick }) {
+            return React.createElement('button', { key, type: 'button', className: 'dsh-auto-paste-bar-button', title, onClick }, label);
+        }
         /** The ambient bar over the composer: which paste, how big, view, remove. */
         function CaptureBar() {
             const { capture, present } = React.useSyncExternalStore(subscribeCapture, readCapture);
@@ -543,20 +552,14 @@ window.__ModuleLoader__.load({
                 return null;
             const actions = [];
             if (betterSidebarCanOpen) {
-                actions.push(React.createElement('button', {
-                    key: 'open',
-                    type: 'button',
-                    className: 'dsh-auto-paste-bar-button',
-                    onClick: openCapture,
-                }, '查看'));
+                actions.push(barButton({ key: 'open', label: '查看', onClick: openCapture }));
             }
-            actions.push(React.createElement('button', {
+            actions.push(barButton({
                 key: 'drop',
-                type: 'button',
-                className: 'dsh-auto-paste-bar-button',
+                label: '×',
                 title: '把这行引用从输入框移除（文件保留在 pastes/）',
                 onClick: removeCapture,
-            }, '×'));
+            }));
             const hint = hintOpen
                 ? React.createElement('div', { className: 'dsh-auto-paste-hint' }, React.createElement('span', { className: 'dsh-auto-paste-hint-text' }, SIDEBAR_HINT_TEXT), React.createElement('button', {
                     type: 'button',
