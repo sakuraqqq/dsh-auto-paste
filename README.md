@@ -34,7 +34,9 @@ MIT License — Copyright (c) 2026 misakamaster。
 
 ### 可选集成：dsh-better-sidebar（在侧栏查看/编辑粘贴文件）
 
-装了 `dsh-better-sidebar` 时，粘贴后出现的药丸会多一个 **「查看」** 按钮 —— 点击在侧栏的编辑器里打开该 `pastes/*.txt`，改完可直接保存回原文件；没装则只显示「✕ 移除引用」，其余功能完全不受影响。集成走**可选注入**（`ctx.inject(['betterSidebar'])` + `features.includes('openFile')` 能力门控）：服务缺席时既不会报错，也不会出现点不动的死按钮。
+装了 `dsh-better-sidebar` 时，粘贴后出现的药丸会多一个 **「查看」** 按钮 —— 点击在侧栏的编辑器里打开该 `pastes/*.txt`，改完可直接保存回原文件。集成走**可选注入**（`ctx.inject(['betterSidebar'])` + `features.includes('openFile')` 能力门控）：服务缺席时既不会报错，也不会出现点不动的死按钮。
+
+没装时，药丸只显示「✕ 移除引用」，并且**第一次粘贴后会就地说明一次**（一行提示，可关闭，关掉后不再出现）；万一错过了那次提示，设置页 General 分区的「侧栏集成」一行会一直写着这件事，装上侧栏后该行自动消失。其余功能完全不受影响。
 
 ## Install / 安装与激活
 

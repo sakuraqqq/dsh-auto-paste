@@ -49,6 +49,45 @@ window.__ModuleLoader__.load({
         // is not installed — the bar then offers removal only, never a dead button.
         let betterSidebar = null;
         let betterSidebarCanOpen = false;
+        // Latch, set the first time a REAL service arrives and never cleared. The inject
+        // callback's dispose runs adopt(null) whenever better-sidebar reloads or unloads,
+        // so "absent right now" cannot tell "never installed" from "reloading" — the
+        // one-shot hint below must key off THIS, never off the live value alone.
+        let betterSidebarEverAdopted = false;
+        // The one-shot degradation hint: D1 semantics, i.e. showing it once counts as
+        // seen, so the bar never nags twice. The General-settings row (below) stays as
+        // the place to look the situation up later, which is why silencing the hint
+        // costs the user nothing.
+        const SIDEBAR_HINT_KEY = 'dsh-auto-paste:sidebar-hint';
+        // null = not read yet, so a denied storage is probed exactly once per page.
+        let sidebarHintSeen = null;
+        /** Has the one-shot hint been shown already? Cached — the bar re-renders often. */
+        function readSidebarHint() {
+            if (sidebarHintSeen === null) {
+                try {
+                    sidebarHintSeen = window.localStorage.getItem(SIDEBAR_HINT_KEY) === '1';
+                }
+                catch (error) {
+                    // Private mode / disabled storage throws on access. The in-memory flag
+                    // still keeps this page quiet; the cost is one extra showing per reload.
+                    console.warn(`[${PACKAGE}] localStorage unavailable — the sidebar hint may return:`, error);
+                    sidebarHintSeen = false;
+                }
+            }
+            return sidebarHintSeen;
+        }
+        /** Remember that the hint has been shown. Best effort: storage may be denied. */
+        function markSidebarHintSeen() {
+            if (sidebarHintSeen === true)
+                return;
+            sidebarHintSeen = true;
+            try {
+                window.localStorage.setItem(SIDEBAR_HINT_KEY, '1');
+            }
+            catch (error) {
+                console.warn(`[${PACKAGE}] could not persist the sidebar hint state:`, error);
+            }
+        }
         // The most recent capture THIS page made, plus whether its reference is still
         // in the composer. One snapshot object, replaced only when it changes (a fresh
         // object per render would make useSyncExternalStore loop forever).
@@ -434,8 +473,14 @@ window.__ModuleLoader__.load({
             betterSidebar.openFile({ sessionId: capture.sessionId }, capture.absolutePath ?? capture.path);
         }
         const BAR_CSS = [
-            '.dsh-auto-paste-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:40px;display:flex;align-items:center;',
-            'gap:7px;max-width:min(100%,var(--dsh-composer-card-max-width,640px));pointer-events:auto;',
+            // ONE row: the pill and its annotation sit side by side. A stacked (column)
+            // layout was measured to push the hint up onto the empty-session title
+            // (2026-09-16, third visual pass) — there is no free vertical room above the
+            // composer, while there is plenty of horizontal room beside the pill.
+            '.dsh-auto-paste-stack{position:absolute;left:50%;transform:translateX(-50%);bottom:40px;display:flex;',
+            'align-items:center;gap:10px;max-width:min(100%,var(--dsh-composer-card-max-width,640px));',
+            'pointer-events:auto}',
+            '.dsh-auto-paste-bar{display:flex;align-items:center;gap:7px;max-width:100%;',
             'padding:3px 10px;border-radius:999px;font-size:12px;line-height:18px;',
             'border:.5px solid var(--dsw-alias-border-l3,rgba(127,127,127,.35));',
             'background:var(--dsw-alias-bg-layer-1,rgba(28,28,30,.94));',
@@ -447,13 +492,55 @@ window.__ModuleLoader__.load({
             '.dsh-auto-paste-bar-button{flex:none;padding:1px 8px;border:0;border-radius:999px;font:inherit;cursor:pointer;',
             'background:var(--dsw-alias-bg-layer-1,rgba(127,127,127,.18));color:inherit}',
             '.dsh-auto-paste-bar-button:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.3))}',
+            // The one-shot hint is an ANNOTATION to the pill, not a third control: no
+            // border, no shadow, smaller and dimmer than the pill. It KEEPS a faint plate
+            // though — bare text was measured to sit unreadably on top of the empty-session
+            // title (2026-09-16, second visual pass). One line only: it now wraps never,
+            // and ellipsizes instead.
+            '.dsh-auto-paste-hint{display:flex;align-items:center;gap:6px;padding:2px 8px;border-radius:8px;max-width:100%;',
+            'font-size:11px;line-height:16px;white-space:nowrap;',
+            'background:var(--dsw-alias-bg-layer-1,rgba(28,28,30,.72));',
+            'color:var(--dsw-alias-label-primary,#f5f5f5);opacity:.85}',
+            '.dsh-auto-paste-hint-text{min-width:0;overflow:hidden;text-overflow:ellipsis}',
+            '.dsh-auto-paste-hint-close{flex:none;padding:0 4px;border:0;border-radius:999px;font:inherit;font-size:11px;',
+            'cursor:pointer;background:transparent;color:inherit;opacity:.7}',
+            '.dsh-auto-paste-hint-close:hover{opacity:1}',
         ].join('');
+        // The one-shot copy. Kept to ONE short line on purpose: it renders BESIDE the pill
+        // (see BAR_CSS), and a longer version was measured to squeeze the pill's filename
+        // (2026-09-16). It names the plugin rather than an install command: the upstream
+        // recipe is three profile-bound commands, which a pill cannot carry without
+        // turning into noise — whoever wants it finds it by name.
+        const SIDEBAR_HINT_TEXT = '没装 dsh-better-sidebar（装它才有「查看」）';
+        /**
+         * Should the one-shot "no sidebar" hint be offered? Extracted from the bar rather
+         * than inlined: every `&&` counts toward the cyclomatic gate in tools/metrics.mjs.
+         * Only a paste that is actually on screen can trigger it, and only while the
+         * integration was NEVER there (see betterSidebarEverAdopted).
+         */
+        function shouldOfferSidebarHint(onScreen) {
+            if (!onScreen)
+                return false;
+            if (betterSidebarEverAdopted)
+                return false;
+            return !readSidebarHint();
+        }
         /** The ambient bar over the composer: which paste, how big, view, remove. */
         function CaptureBar() {
             const { capture, present } = React.useSyncExternalStore(subscribeCapture, readCapture);
-            if (capture === null || present !== true || !captureBelongsToCurrentSession(capture)) {
+            const [hintOpen, setHintOpen] = React.useState(false);
+            const onScreen = capture !== null && present === true && captureBelongsToCurrentSession(capture);
+            const hintWanted = shouldOfferSidebarHint(onScreen);
+            // D1: showing it counts as seen. Latched inside an effect, never during render —
+            // a render-time write is a side effect and would run twice under StrictMode.
+            React.useEffect(() => {
+                if (!hintWanted)
+                    return;
+                markSidebarHintSeen();
+                setHintOpen(true);
+            }, [hintWanted]);
+            if (!onScreen)
                 return null;
-            }
             const actions = [];
             if (betterSidebarCanOpen) {
                 actions.push(React.createElement('button', {
@@ -470,7 +557,16 @@ window.__ModuleLoader__.load({
                 title: '把这行引用从输入框移除（文件保留在 pastes/）',
                 onClick: removeCapture,
             }, '×'));
-            return React.createElement('div', { className: 'dsh-auto-paste-bar' }, React.createElement('span', { className: 'dsh-auto-paste-bar-name' }, capture.path), React.createElement('span', { className: 'dsh-auto-paste-bar-meta' }, `${capture.chars} 字符`), React.createElement('span', { className: 'dsh-auto-paste-bar-spacer' }), actions);
+            const hint = hintOpen
+                ? React.createElement('div', { className: 'dsh-auto-paste-hint' }, React.createElement('span', { className: 'dsh-auto-paste-hint-text' }, SIDEBAR_HINT_TEXT), React.createElement('button', {
+                    type: 'button',
+                    className: 'dsh-auto-paste-hint-close',
+                    title: '知道了，不再提示',
+                    onClick: () => setHintOpen(false),
+                }, '×'))
+                : null;
+            const bar = React.createElement('div', { className: 'dsh-auto-paste-bar' }, React.createElement('span', { className: 'dsh-auto-paste-bar-name' }, capture.path), React.createElement('span', { className: 'dsh-auto-paste-bar-meta' }, `${capture.chars} 字符`), React.createElement('span', { className: 'dsh-auto-paste-bar-spacer' }), actions);
+            return React.createElement('div', { className: 'dsh-auto-paste-stack' }, bar, hint);
         }
         /**
          * Additive entry in the composer dock (an ambient row below the composer card,
@@ -658,6 +754,18 @@ window.__ModuleLoader__.load({
                 }, '恢复默认')
                 : null));
         }
+        // The settings-row explainer copy, kept beside its row: this is where a user
+        // lands after dismissing (or never noticing) the one-shot hint.
+        const SIDEBAR_ROW_TEXT = '未检测到 dsh-better-sidebar —— 粘贴药丸上的「查看」需要它才能在侧栏打开 pastes/ 文件；当前只有「✕ 移除引用」。';
+        // The missing integration, explained where a user would go looking for it. It
+        // disappears for good once better-sidebar is adopted — the same latch the hint
+        // uses — and subscribes to the same snapshot so it reacts to the async arrival.
+        function SettingsSidebarRow() {
+            React.useSyncExternalStore(subscribeCapture, readCapture);
+            if (betterSidebarEverAdopted)
+                return null;
+            return React.createElement('div', { className: 'dsh-auto-paste-row' }, React.createElement('div', { className: 'dsh-auto-paste-row-main' }, React.createElement('div', { className: 'dsh-auto-paste-row-label' }, '侧栏集成'), React.createElement('div', { className: 'dsh-auto-paste-row-hint' }, SIDEBAR_ROW_TEXT)));
+        }
         /**
          * Additive entry in the General settings section (`settings.general.item`,
          * replaceRisk "none": a fresh id sits beside the shipped rows). Returns false
@@ -682,6 +790,13 @@ window.__ModuleLoader__.load({
                 order: 30,
                 label: '大段粘贴阈值',
             }, SettingsMinCharsRow)));
+            // A DISTINCT id: the same id at the same priority inside one list slot throws.
+            ctx.effect(() => slots.inject('settings.general.item', () => slots.register({
+                name: 'settings.general.item',
+                id: `${PACKAGE}:sidebar`,
+                order: 31,
+                label: '侧栏集成',
+            }, SettingsSidebarRow)));
             return true;
         }
         /**
@@ -695,6 +810,10 @@ window.__ModuleLoader__.load({
             betterSidebar = service;
             betterSidebarCanOpen =
                 service !== null && Array.isArray(service.features) && service.features.includes('openFile');
+            // Latch on the REAL service only: the dispose path passes null on every reload,
+            // and a null there must never look like "was never installed".
+            if (service !== null)
+                betterSidebarEverAdopted = true;
             console.log(`[${PACKAGE}] betterSidebar ${service === null ? 'gone' : `adopted (openFile=${betterSidebarCanOpen})`}`);
             // A NEW snapshot object: the bar must re-render so the view action appears (or
             // disappears) with the service, and useSyncExternalStore compares identity.
