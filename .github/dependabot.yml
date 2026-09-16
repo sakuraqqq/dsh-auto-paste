@@ -1,0 +1,28 @@
+# dependabot.yml — 依赖新鲜度（防屎山 P5）· 2026-09-16 立
+#
+# 为什么有它：本仓库唯一的 issue（#1，justforuse 提的，至今 open）要的就是升级
+# @deepseek-ai/dsh-tools。实测 2026-09-16：dsh-tools / dsh-typert-protocol /
+# dsh-session 三个包的 npm `latest` tag 全部指向**过期的 0.0.1-rc.1**，真实线在 `next`
+# —— 照 latest 装必然装错，人肉盯版本号也容易漏。
+#
+# ⚠️ 已知盲区（重要）：Dependabot 只跟随 npm `latest` tag，因此对 @deepseek-ai/*
+# **完全无效**（它看到 latest 比我们低，就永远不认为有更新）。这条线由
+# `.私档/工程纪律.md` §3「依赖更新」的发版前人工核查覆盖，不要指望这里。
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: '/'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # 普通工具依赖合并成一个 PR，避免刷屏
+      tooling:
+        patterns:
+          - '*'
+    ignore:
+      # @deepseek-ai/*：走 next 线，由纪律人工核对（见文件头的盲区说明）
+      - dependency-name: '@deepseek-ai/*'
+      # 0.1.6+ 与当前 peer 范围不兼容（^0.1.5-rc.1 的上界是 0.2.0，但 alpha 线不追）
+      - dependency-name: '*'
+        versions: ['>=0.1.6-0']
