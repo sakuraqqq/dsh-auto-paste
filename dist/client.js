@@ -511,7 +511,7 @@ window.__ModuleLoader__.load({
         // (2026-09-16). It names the plugin rather than an install command: the upstream
         // recipe is three profile-bound commands, which a pill cannot carry without
         // turning into noise — whoever wants it finds it by name.
-        const SIDEBAR_HINT_TEXT = '没装 dsh-better-sidebar（装它才有「查看」）';
+        const SIDEBAR_HINT_TEXT = '没装 dsh-better-sidebar（装了能在侧栏直接编辑）';
         /**
          * Should the one-shot "no sidebar" hint be offered? Extracted from the bar rather
          * than inlined: every `&&` counts toward the cyclomatic gate in tools/metrics.mjs.
@@ -759,7 +759,7 @@ window.__ModuleLoader__.load({
         }
         // The settings-row explainer copy, kept beside its row: this is where a user
         // lands after dismissing (or never noticing) the one-shot hint.
-        const SIDEBAR_ROW_TEXT = '未检测到 dsh-better-sidebar —— 粘贴药丸上的「查看」需要它才能在侧栏打开 pastes/ 文件；当前只有「✕ 移除引用」。';
+        const SIDEBAR_ROW_TEXT = '未检测到 dsh-better-sidebar —— 装它后粘贴药丸会多一个「查看」，可在侧栏直接打开并编辑 pastes/ 文件；dsh 自带的文件面板只能浏览，不能改。';
         // The missing integration, explained where a user would go looking for it. It
         // disappears for good once better-sidebar is adopted — the same latch the hint
         // uses — and subscribes to the same snapshot so it reacts to the async arrival.
