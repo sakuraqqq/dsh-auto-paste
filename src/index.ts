@@ -157,6 +157,58 @@ export function resolveMaxBytes(raw: unknown): number {
  */
 export const MIN_CHARS_DEFAULT = 500
 
+/**
+ * Whether THIS schemastery build knows `.volatile()`.
+ *
+ * dsh 0.1.7 projects plugin settings out of the plugin's own Config, and only a
+ * field marked volatile becomes editable there; dsh 0.1.5 ships schemastery 3.18.2,
+ * which has no such method at all. Calling it unconditionally would therefore throw
+ * while this module LOADS — taking the whole plugin down on the older line. Probe,
+ * never assume: the same rule the settings service itself taught us.
+ */
+const schemaVolatileCapable =
+  typeof (z.number() as unknown as { volatile?: unknown }).volatile === 'function'
+
+/** A live-editable number where the running line supports it, an ordinary one where not. */
+function liveNumber(defaultValue: number) {
+  const schema = z.number().default(defaultValue)
+  const box = schema as unknown as { volatile?: () => typeof schema }
+  return typeof box.volatile === 'function' ? box.volatile() : schema
+}
+
+/**
+ * The plugin's own Config — and, on dsh 0.1.7, its settings surface.
+ *
+ * 0.1.5 let a plugin DECLARE a namespace (`settings.register`) and kept the user's
+ * value in dsh's own settings document. 0.1.7 deleted that: it projects a form out
+ * of THIS schema, writes the edited field back into the profile patch, and hands
+ * the plugin a LIVE box it reads with `.get()`. `minChars` is the knob the General
+ * row edits, so it is the volatile one; `maxBytes` stays ordinary config (row file
+ * plus restart).
+ */
+export const Config = z.object({
+  minChars: liveNumber(MIN_CHARS_DEFAULT),
+  maxBytes: z.number().default(MAX_PASTE_BYTES),
+})
+
+/**
+ * Unwrap one config value as it stands right now.
+ *
+ * A volatile field arrives as a LIVE BOX (`{ get() }`) — that is exactly what makes
+ * it editable without remounting the plugin — while 0.1.5 and non-volatile fields
+ * arrive as plain values. One unwrapper, so every reader agrees on what it holds.
+ */
+export function readLiveValue(raw: unknown): unknown {
+  if (
+    raw !== null &&
+    typeof raw === 'object' &&
+    typeof (raw as { get?: unknown }).get === 'function'
+  ) {
+    return (raw as { get: () => unknown }).get()
+  }
+  return raw
+}
+
 /** Effective configuration handed to the web client (`pasteStore/getConfig`). */
 export interface PasteStoreConfig {
   /** Char threshold at or above which a paste is captured into a file. */
@@ -198,6 +250,8 @@ type SettingsPathOpLike =
 interface SettingsServiceLike {
   register?(ns: string, schema: unknown, options?: { applies?: 'live' | 'restart' }): unknown
   get?(ns: string): unknown
+  /** 0.1.7 only: per-instance settings-page policy (declining the generated page). */
+  configure?(presentation: { auto?: boolean }, owner?: unknown): () => void
   update(ns: string, patch: Record<string, unknown>): Promise<void>
   mutate(ns: string, ops: readonly SettingsPathOpLike[]): Promise<void>
 }
@@ -401,17 +455,51 @@ export function isRegisteredWorkspace(dir: string, workspaces: WorkspaceLike[]):
   return workspaces.some((workspace) => norm(workspace.path) === target)
 }
 
+/** The activation Config this plugin was handed; every field read live, never cached. */
+interface PluginConfigLike {
+  minChars?: unknown
+  maxBytes?: unknown
+}
+
 /** Host service the web client calls via the connection RPC (`/api`). */
 class PasteStoreService extends TypertRemoteService {
-  /** Deployment default char threshold, from the loader row config (cordis.patch.yml). */
-  private readonly deploymentMinChars: number
-  /** Effective byte ceiling for one paste (resolved once at boot). */
-  private readonly maxBytes: number
+  /**
+   * The activation config, kept as a REFERENCE on purpose.
+   *
+   * On 0.1.7 these fields are volatile, so a Settings write reaches us as a new
+   * value inside the same box. Resolving a number once at boot is exactly what would
+   * make a freshly saved value invisible until the next restart.
+   */
+  private readonly pluginConfig: PluginConfigLike
 
-  constructor(ctx: Context, deploymentMinChars: number, maxBytes: number) {
+  constructor(ctx: Context, config: PluginConfigLike) {
     super(ctx, 'pasteStore')
-    this.deploymentMinChars = deploymentMinChars
-    this.maxBytes = maxBytes
+    this.pluginConfig = config
+  }
+
+  /**
+   * One numeric knob for THIS call, falling back to the documented default.
+   *
+   * Silent on purpose: a bad value was already reported once at boot (see `apply`),
+   * and this runs on every config read — repeating it there would be spam rather
+   * than transparency.
+   */
+  private knob(raw: unknown, resolve: (value: unknown) => number, fallback: number): number {
+    try {
+      return resolve(readLiveValue(raw))
+    } catch {
+      return fallback
+    }
+  }
+
+  /** The deployment default threshold, as configured right now. */
+  private deploymentMinChars(): number {
+    return this.knob(this.pluginConfig.minChars, resolveMinChars, MIN_CHARS_DEFAULT)
+  }
+
+  /** The byte ceiling for one paste, as configured right now. */
+  private maxBytes(): number {
+    return this.knob(this.pluginConfig.maxBytes, resolveMaxBytes, MAX_PASTE_BYTES)
   }
 
   /** The settings service for this context, or undefined without a provider. */
@@ -422,7 +510,7 @@ class PasteStoreService extends TypertRemoteService {
   /** The effective threshold right now, together with the layer it came from. */
   private effective(): { minChars: number; source: 'user' | 'deployment' } {
     const stored = this.settingsValue()
-    return effectiveMinChars(stored?.[MIN_CHARS_FIELD], this.deploymentMinChars)
+    return effectiveMinChars(stored?.[MIN_CHARS_FIELD], this.deploymentMinChars())
   }
 
   /**
@@ -436,14 +524,22 @@ class PasteStoreService extends TypertRemoteService {
   }
 
   /**
-   * Whether the user can store a preference from the UI. Requires BOTH a settings
-   * service AND its read-back channel: on 0.1.7 the service exists (so the naive
-   * `!== undefined` probe answered yes) while `get` does not — a preference written
-   * through `update` could then never be read back, so the row must say "edit
-   * cordis.patch.yml" instead of pretending a save would stick.
+   * Whether the user can store a preference from the UI — this is what the General
+   * row renders as an editable field.
+   *
+   * A WRITE PATH, not a service: the service's mere presence once made the row
+   * promise a save that could never be read back. Which write path counts differs
+   * by line —
+   *   - 0.1.5 keeps the user's value and reads it back with `get`, closing the loop;
+   *   - 0.1.7 has no `get` at all: the field is written into this plugin's own
+   *     Config, and that write only lands because the field is declared volatile.
+   * Anything else (no provider, no `update`, a line whose schema cannot be marked
+   * volatile) leaves the row in its honest "edit cordis.patch.yml" state.
    */
   private canConfigure(): boolean {
-    return typeof this.settings()?.get === 'function'
+    const settings = this.settings()
+    if (typeof settings?.update !== 'function') return false
+    return typeof settings.get === 'function' || schemaVolatileCapable
   }
 
   /** Build the wire payload the browser reads (and re-reads after every write). */
@@ -451,9 +547,9 @@ class PasteStoreService extends TypertRemoteService {
     const { minChars, source } = this.effective()
     return {
       minChars,
-      maxBytes: this.maxBytes,
+      maxBytes: this.maxBytes(),
       minCharsSource: source,
-      deploymentMinChars: this.deploymentMinChars,
+      deploymentMinChars: this.deploymentMinChars(),
       canConfigure: this.canConfigure(),
     }
   }
@@ -504,20 +600,25 @@ class PasteStoreService extends TypertRemoteService {
     if (dir === undefined) throw new Error('pasteStore: no workspace available to save the paste into')
     // The browser half also gets the absolute path: the sidebar's file API refuses
     // relative ones, so [查看] would open a file it could never save back.
-    return wirePasteRef(await savePasteTo(dir, text, new Date(), this.maxBytes))
+    return wirePasteRef(await savePasteTo(dir, text, new Date(), this.maxBytes()))
   }
 }
 
 // Wait until the host's tool registry (ctx.tools) is ready before running.
 export const inject = ['tools']
 
-export function apply(ctx: Context, config: { minChars?: number; maxBytes?: number } = {}) {
+export function apply(ctx: Context, config: PluginConfigLike = {}) {
   // An invalid value must never pass silently: log it, then fall back to the
   // default, so a typo in the row config stays visible instead of taking the
   // plugin down. Same shape for both knobs.
+  //
+  // These two locals are the BOOT-TIME REPORT only (this log line, the tool
+  // description below). What the service enforces is re-read from `config` on every
+  // call — see PasteStoreService.knob — because on 0.1.7 a Settings write lands in
+  // that same config while dsh keeps running.
   let minChars = MIN_CHARS_DEFAULT
   try {
-    minChars = resolveMinChars(config.minChars)
+    minChars = resolveMinChars(readLiveValue(config.minChars))
   } catch (error) {
     console.error(
       `[dsh-auto-paste] invalid minChars in config — falling back to ${MIN_CHARS_DEFAULT} chars:`,
@@ -526,7 +627,7 @@ export function apply(ctx: Context, config: { minChars?: number; maxBytes?: numb
   }
   let maxBytes = MAX_PASTE_BYTES
   try {
-    maxBytes = resolveMaxBytes(config.maxBytes)
+    maxBytes = resolveMaxBytes(readLiveValue(config.maxBytes))
   } catch (error) {
     console.error(
       `[dsh-auto-paste] invalid maxBytes in config — falling back to ${MAX_PASTE_BYTES} bytes:`,
@@ -546,9 +647,17 @@ export function apply(ctx: Context, config: { minChars?: number; maxBytes?: numb
     if (typeof settings.register === 'function') {
       settings.register(PASTE_SETTINGS_NAMESPACE, PasteSettingsSchema, { applies: 'live' })
     }
+    // 0.1.7 generates a settings page for every entry that HAS volatile fields.
+    // Ours has its own General row (which writes through this very service), so it
+    // declines the generated duplicate. The disposer rides the child's effects —
+    // the official shape.
+    const configure = settings.configure?.bind(settings)
+    if (configure !== undefined) {
+      settingsCtx.effect(() => configure({ auto: false }, ctx.fiber))
+    }
   })
 
-  new PasteStoreService(ctx, minChars, maxBytes)
+  new PasteStoreService(ctx, config)
 
   ctx.tools.register(defineTool({
     // The name the model uses to call this tool.

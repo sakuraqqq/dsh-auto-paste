@@ -769,7 +769,7 @@ window.__ModuleLoader__.load({
     function thresholdHint(remote) {
       if (remote === null) return '正在读取 host 配置…'
       if (remote.canConfigure === false) {
-        return '此部署没有 settings 提供方，无法在界面保存 —— 请改 cordis.patch.yml 的 minChars 并重启 dsh'
+        return '当前 dsh 无法在界面保存该值 —— 请改 cordis.patch.yml 的 minChars 并重启 dsh'
       }
       if (remote.minCharsSource === 'user') {
         return `已自定义；部署默认值 ${remote.deploymentMinChars} 字符（cordis.patch.yml）`

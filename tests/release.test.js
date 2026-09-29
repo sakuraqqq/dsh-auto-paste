@@ -19,6 +19,7 @@ import {
   resolveMinChars,
   effectiveMinChars,
   readSettings,
+  readLiveValue,
   PasteSettingsSchema,
   PASTE_SETTINGS_NAMESPACE,
   MIN_CHARS_FIELD,
@@ -1013,12 +1014,21 @@ describe('settings capability probes — dsh 0.1.7 dropped get/register (2026-09
     )
   })
 
-  test('canConfigure requires a read-back channel, not just a service', () => {
+  // Re-specified 2026-09-29 (the user chose the full 0.1.7 adaptation): the row is
+  // editable whenever a WRITE PATH exists. 0.1.5 closes the loop with get(); 0.1.7
+  // has no get at all and writes into this plugin's own volatile field instead.
+  // The service's presence still proves nothing on either line.
+  test('canConfigure needs a working write path, and names which one', () => {
     const src = readHost()
     assert.match(
       src,
-      /typeof this\.settings\(\)\?\.get === 'function'/,
-      'on 0.1.7 the service exists while get does not — presence alone answered yes',
+      /typeof settings\?\.update !== 'function'/,
+      'a service without update can store nothing at all',
+    )
+    assert.match(
+      src,
+      /return typeof settings\.get === 'function' \|\| schemaVolatileCapable/,
+      '0.1.5 proves the loop with get; 0.1.7 with a volatile field',
     )
     assert.doesNotMatch(
       src,
@@ -1033,6 +1043,78 @@ describe('settings capability probes — dsh 0.1.7 dropped get/register (2026-09
       readHost(),
       /private settingsValue\(\)[^{]*\{\s*return readSettings\(this\.settings\(\), PASTE_SETTINGS_NAMESPACE\)/,
       'the guard must live in one place, or it will be forgotten in the next copy',
+    )
+  })
+})
+
+describe('0.1.7 keeps settings in the plugin Config — read live, never cached (2026-09-29)', () => {
+  const readHost = () => readFileSync(join(PKG_ROOT, 'src', 'index.ts'), 'utf8')
+
+  // 0.1.7 hands volatile fields over as live boxes (`{ get() }`); 0.1.5 hands the
+  // value itself. Reading a box as a number is what would silently drop every saved
+  // value back to the default.
+  test('a volatile box unwraps, a plain value passes through, the resolvers accept both', () => {
+    assert.equal(readLiveValue({ get: () => 1000 }), 1000, '0.1.7 shape')
+    assert.equal(readLiveValue(500), 500, '0.1.5 shape')
+    assert.equal(readLiveValue(undefined), undefined)
+    assert.equal(resolveMinChars(readLiveValue({ get: () => 1000 })), 1000)
+  })
+
+  // The 0.1.7 loader reads `runtime.Config` and requires `"toJSON" in schema`; a
+  // plain object literal would be ignored, leaving the entry unconfigurable.
+  // schemastery schemas are CALLABLE objects, so the check is on their members.
+  test('the exported Config is a real schemastery schema', async () => {
+    const { Config } = await import('../dist/index.js')
+    assert.ok(
+      typeof Config === 'function' || typeof Config === 'object',
+      'the loader looks for an exported Config',
+    )
+    assert.equal(typeof Config.toJSON, 'function', 'and checks "toJSON" in schema')
+    assert.ok(
+      Config.dict !== undefined && Object.hasOwn(Config.dict, MIN_CHARS_FIELD),
+      'whose fields are the ones the row edits',
+    )
+  })
+
+  // `.volatile()` exists on the 0.1.7 line only: dsh 0.1.5 ships schemastery
+  // 3.18.2, whose whole package contains no such method. Calling it unconditionally
+  // would throw while this module loads — taking the plugin down on the older line.
+  test('minChars is declared volatile, behind a capability probe', () => {
+    const src = readHost()
+    assert.match(src, /export const Config = z\.object\(\{/, 'the schema the loader projects')
+    assert.match(
+      src,
+      /typeof \(z\.number\(\) as unknown as \{ volatile\?: unknown \}\)\.volatile === 'function'/,
+      'the probe is what keeps this module loadable on 0.1.5',
+    )
+    assert.match(
+      src,
+      /return typeof box\.volatile === 'function' \? box\.volatile\(\) : schema/,
+      'and the field is only wrapped where the method exists',
+    )
+    assert.match(src, /minChars: liveNumber\(MIN_CHARS_DEFAULT\)/, 'minChars is the live knob')
+  })
+
+  // A number resolved once at boot is exactly what makes a value saved in Settings
+  // invisible until the next restart.
+  test('the service re-reads its config instead of caching numbers at boot', () => {
+    const src = readHost()
+    assert.doesNotMatch(
+      src,
+      /private readonly (deploymentMinChars|maxBytes): number/,
+      'no boot-time snapshot may come back',
+    )
+    assert.match(src, /private readonly pluginConfig: PluginConfigLike/, 'the reference is kept')
+    assert.match(src, /resolve\(readLiveValue\(raw\)\)/, 'and unwrapped on every call')
+    assert.match(
+      src,
+      /resolveMinChars\(readLiveValue\(config\.minChars\)\)/,
+      'the boot-time report must unwrap too, or a volatile box logs a false invalid',
+    )
+    assert.match(
+      src,
+      /new PasteStoreService\(ctx, config\)/,
+      'the service gets the config object, not two resolved numbers',
     )
   })
 })
