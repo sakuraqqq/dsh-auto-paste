@@ -18,6 +18,7 @@ import {
   resolveMaxBytes,
   resolveMinChars,
   effectiveMinChars,
+  readSettings,
   PasteSettingsSchema,
   PASTE_SETTINGS_NAMESPACE,
   MIN_CHARS_FIELD,
@@ -947,6 +948,91 @@ describe('0.1.5-① — the bar says so when no sidebar is installed', () => {
       src,
       /id: `\$\{PACKAGE\}:sidebar`/,
       'the explainer needs its own id: a second entry at the same id at the same priority throws',
+    )
+  })
+})
+
+describe('settings capability probes — dsh 0.1.7 dropped get/register (2026-09-29)', () => {
+  const readHost = () => readFileSync(join(PKG_ROOT, 'src', 'index.ts'), 'utf8')
+  const count = (text, re) => (text.match(re) ?? []).length
+
+  // The 0.1.6 shape: the namespace is readable through `get`.
+  const legacySettings = () => ({
+    register: () => {},
+    get: () => ({ [MIN_CHARS_FIELD]: 1234 }),
+    update: async () => {},
+    mutate: async () => {},
+  })
+
+  // The 0.1.7 shape, measured in the lab: the service exists, the reader does not.
+  const formsSettings = () => ({
+    update: async () => {},
+    mutate: async () => {},
+  })
+
+  test('a 0.1.7 settings service reads as "nothing stored" instead of throwing', () => {
+    const service = formsSettings()
+    assert.equal(typeof service.get, 'undefined', 'the fixture must really lack get')
+    assert.equal(
+      readSettings(service, PASTE_SETTINGS_NAMESPACE),
+      undefined,
+      'service.get is the exact TypeError that took getConfig — and the config path — down',
+    )
+  })
+
+  test('a readable service still returns its stored namespace', () => {
+    assert.deepEqual(readSettings(legacySettings(), PASTE_SETTINGS_NAMESPACE), {
+      [MIN_CHARS_FIELD]: 1234,
+    })
+  })
+
+  test('a missing provider and a non-object value both read as undefined', () => {
+    const nonsense = { ...formsSettings(), get: () => 'nonsense' }
+    assert.equal(readSettings(undefined, PASTE_SETTINGS_NAMESPACE), undefined)
+    assert.equal(readSettings(nonsense, PASTE_SETTINGS_NAMESPACE), undefined)
+  })
+
+  test('the host never calls get/register without probing first', () => {
+    const src = readHost()
+    assert.equal(
+      count(src, /\.get\(PASTE_SETTINGS_NAMESPACE\)/g),
+      0,
+      'reading the namespace directly IS the crash: "this.settings(...)?.get is not a function"',
+    )
+    assert.equal(count(src, /settings\.register\(/g), 1, 'exactly one register call site')
+    assert.match(
+      src,
+      /if \(typeof settings\.register === 'function'\) \{\s*settings\.register\(/,
+      'and that one call site sits inside the probe',
+    )
+    assert.match(src, /service\.get\(ns\)/, 'readSettings owns the single get call')
+    assert.match(
+      src,
+      /if \(service === undefined \|\| typeof service\.get !== 'function'\) return undefined/,
+      'guarded before it is called',
+    )
+  })
+
+  test('canConfigure requires a read-back channel, not just a service', () => {
+    const src = readHost()
+    assert.match(
+      src,
+      /typeof this\.settings\(\)\?\.get === 'function'/,
+      'on 0.1.7 the service exists while get does not — presence alone answered yes',
+    )
+    assert.doesNotMatch(
+      src,
+      /canConfigure: this\.settings\(\) !== undefined/,
+      'the old presence-only probe promised a save that could never be read back',
+    )
+    assert.match(src, /canConfigure: this\.canConfigure\(\)/, 'the payload uses the real verdict')
+  })
+
+  test('settingsValue cannot drift back to calling get on its own', () => {
+    assert.match(
+      readHost(),
+      /private settingsValue\(\)[^{]*\{\s*return readSettings\(this\.settings\(\), PASTE_SETTINGS_NAMESPACE\)/,
+      'the guard must live in one place, or it will be forgotten in the next copy',
     )
   })
 })

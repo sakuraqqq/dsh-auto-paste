@@ -93,6 +93,21 @@ export function resolveMaxBytes(raw) {
  */
 export const MIN_CHARS_DEFAULT = 500;
 /**
+ * Read one namespace back through a settings service, or undefined when this
+ * deployment cannot read it back at all.
+ *
+ * The service's mere presence proves nothing: dsh 0.1.7 keeps `SettingsForms`
+ * but drops `get` (values are projected out of each plugin's own Config instead),
+ * so calling it is a TypeError — measured, and it took `getConfig`, hence the web
+ * client's whole config path, down with it.
+ */
+export function readSettings(service, ns) {
+    if (service === undefined || typeof service.get !== 'function')
+        return undefined;
+    const value = service.get(ns);
+    return typeof value === 'object' && value !== null ? value : undefined;
+}
+/**
  * Settings namespace this plugin owns (`settings.register` requires a lowercase
  * hyphenated identifier). The browser side backs it with a row in dsh's General
  * settings section (`settings.general.item`).
@@ -264,12 +279,24 @@ class PasteStoreService extends TypertRemoteService {
         const stored = this.settingsValue();
         return effectiveMinChars(stored?.[MIN_CHARS_FIELD], this.deploymentMinChars);
     }
-    /** The user layer as stored, or undefined when nothing is stored (or no provider). */
+    /**
+     * The user layer as stored, or undefined when nothing is stored, no provider
+     * exists, or the running line has no `get` to read it back with (see
+     * `readSettings`). Falling back to the deployment default keeps every paste
+     * feature working; the General row reports the situation instead of failing.
+     */
     settingsValue() {
-        const value = this.settings()?.get(PASTE_SETTINGS_NAMESPACE);
-        return typeof value === 'object' && value !== null
-            ? value
-            : undefined;
+        return readSettings(this.settings(), PASTE_SETTINGS_NAMESPACE);
+    }
+    /**
+     * Whether the user can store a preference from the UI. Requires BOTH a settings
+     * service AND its read-back channel: on 0.1.7 the service exists (so the naive
+     * `!== undefined` probe answered yes) while `get` does not — a preference written
+     * through `update` could then never be read back, so the row must say "edit
+     * cordis.patch.yml" instead of pretending a save would stick.
+     */
+    canConfigure() {
+        return typeof this.settings()?.get === 'function';
     }
     /** Build the wire payload the browser reads (and re-reads after every write). */
     config() {
@@ -279,7 +306,7 @@ class PasteStoreService extends TypertRemoteService {
             maxBytes: this.maxBytes,
             minCharsSource: source,
             deploymentMinChars: this.deploymentMinChars,
-            canConfigure: this.settings() !== undefined,
+            canConfigure: this.canConfigure(),
         };
     }
     /**
@@ -357,7 +384,11 @@ export function apply(ctx, config = {}) {
         // `settings` is provided by the composition, so the Cordis Context type does
         // not carry it; the cast only names the slice we call (SettingsServiceLike).
         const settings = settingsCtx.settings;
-        settings.register(PASTE_SETTINGS_NAMESPACE, PasteSettingsSchema, { applies: 'live' });
+        // dsh 0.1.7 dropped `register`: it projects settings from each plugin's own
+        // Config instead, so there is nothing left to declare here. Probe, never assume.
+        if (typeof settings.register === 'function') {
+            settings.register(PASTE_SETTINGS_NAMESPACE, PasteSettingsSchema, { applies: 'live' });
+        }
     });
     new PasteStoreService(ctx, minChars, maxBytes);
     ctx.tools.register(defineTool({

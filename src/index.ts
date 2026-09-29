@@ -184,12 +184,40 @@ type SettingsPathOpLike =
  * The slice of dsh's settings service this plugin uses, typed structurally
  * because `@deepseek-ai/dsh-settings` is not a dependency of this package: the
  * service arrives through the composition, so we only describe what we call.
+ *
+ * TWO LINES, TWO SHAPES (measured: 0.1.5-rc.x vs 0.1.7-rc.2):
+ *   - 0.1.5 — the plugin DECLARES a namespace (`register`) and reads it back (`get`).
+ *   - 0.1.7 — `SettingsForms` dropped BOTH: settings are now projected from each
+ *     plugin's own Config (fields marked `.volatile()`), and its docs say
+ *     "Business plugins read their Config references directly". `update`/`mutate`
+ *     survive, with an extra optional `expectedRevision`.
+ * Hence `register` and `get` are OPTIONAL, and every call site probes for them.
+ * Calling without the probe is a hard TypeError on 0.1.7 — measured, and it took
+ * the whole web-client config path down with it.
  */
 interface SettingsServiceLike {
-  register(ns: string, schema: unknown, options?: { applies?: 'live' | 'restart' }): unknown
-  get(ns: string): unknown
+  register?(ns: string, schema: unknown, options?: { applies?: 'live' | 'restart' }): unknown
+  get?(ns: string): unknown
   update(ns: string, patch: Record<string, unknown>): Promise<void>
   mutate(ns: string, ops: readonly SettingsPathOpLike[]): Promise<void>
+}
+
+/**
+ * Read one namespace back through a settings service, or undefined when this
+ * deployment cannot read it back at all.
+ *
+ * The service's mere presence proves nothing: dsh 0.1.7 keeps `SettingsForms`
+ * but drops `get` (values are projected out of each plugin's own Config instead),
+ * so calling it is a TypeError — measured, and it took `getConfig`, hence the web
+ * client's whole config path, down with it.
+ */
+export function readSettings(
+  service: SettingsServiceLike | undefined,
+  ns: string,
+): Record<string, unknown> | undefined {
+  if (service === undefined || typeof service.get !== 'function') return undefined
+  const value = service.get(ns)
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : undefined
 }
 
 /**
@@ -397,12 +425,25 @@ class PasteStoreService extends TypertRemoteService {
     return effectiveMinChars(stored?.[MIN_CHARS_FIELD], this.deploymentMinChars)
   }
 
-  /** The user layer as stored, or undefined when nothing is stored (or no provider). */
+  /**
+   * The user layer as stored, or undefined when nothing is stored, no provider
+   * exists, or the running line has no `get` to read it back with (see
+   * `readSettings`). Falling back to the deployment default keeps every paste
+   * feature working; the General row reports the situation instead of failing.
+   */
   private settingsValue(): Record<string, unknown> | undefined {
-    const value = this.settings()?.get(PASTE_SETTINGS_NAMESPACE)
-    return typeof value === 'object' && value !== null
-      ? (value as Record<string, unknown>)
-      : undefined
+    return readSettings(this.settings(), PASTE_SETTINGS_NAMESPACE)
+  }
+
+  /**
+   * Whether the user can store a preference from the UI. Requires BOTH a settings
+   * service AND its read-back channel: on 0.1.7 the service exists (so the naive
+   * `!== undefined` probe answered yes) while `get` does not — a preference written
+   * through `update` could then never be read back, so the row must say "edit
+   * cordis.patch.yml" instead of pretending a save would stick.
+   */
+  private canConfigure(): boolean {
+    return typeof this.settings()?.get === 'function'
   }
 
   /** Build the wire payload the browser reads (and re-reads after every write). */
@@ -413,7 +454,7 @@ class PasteStoreService extends TypertRemoteService {
       maxBytes: this.maxBytes,
       minCharsSource: source,
       deploymentMinChars: this.deploymentMinChars,
-      canConfigure: this.settings() !== undefined,
+      canConfigure: this.canConfigure(),
     }
   }
 
@@ -500,7 +541,11 @@ export function apply(ctx: Context, config: { minChars?: number; maxBytes?: numb
     // `settings` is provided by the composition, so the Cordis Context type does
     // not carry it; the cast only names the slice we call (SettingsServiceLike).
     const settings = (settingsCtx as unknown as { settings: SettingsServiceLike }).settings
-    settings.register(PASTE_SETTINGS_NAMESPACE, PasteSettingsSchema, { applies: 'live' })
+    // dsh 0.1.7 dropped `register`: it projects settings from each plugin's own
+    // Config instead, so there is nothing left to declare here. Probe, never assume.
+    if (typeof settings.register === 'function') {
+      settings.register(PASTE_SETTINGS_NAMESPACE, PasteSettingsSchema, { applies: 'live' })
+    }
   })
 
   new PasteStoreService(ctx, minChars, maxBytes)
