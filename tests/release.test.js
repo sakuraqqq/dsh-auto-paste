@@ -1036,3 +1036,49 @@ describe('settings capability probes — dsh 0.1.7 dropped get/register (2026-09
     )
   })
 })
+
+describe('large pastes survive dsh 0.1.7 dropping list.current (2026-09-29)', () => {
+  const readClient = () => readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+  const count = (text, re) => (text.match(re) ?? []).length
+  const from = (text, anchor, span) => {
+    const start = text.indexOf(anchor)
+    assert.ok(start >= 0, `${anchor} must exist`)
+    return text.slice(start, start + span)
+  }
+
+  // 0.1.7 moved the selection out of ClientSessions, and SessionListState lost
+  // `current` (0.1.5 declared `current: SessionId | undefined`). A direct read
+  // answered undefined, so the listener returned without a word: the raw text
+  // landed in the composer, nothing was saved, and nothing was logged.
+  test('the paste listener never reads the list snapshot itself', () => {
+    const src = readClient()
+    assert.doesNotMatch(
+      from(src, 'const onPaste = (event)', 2200),
+      /getSnapshot/,
+      'reading it here is the 0.1.7 silent passthrough: no field, no save, no complaint',
+    )
+    assert.match(
+      from(src, 'const sessionId = currentSessionId()', 160),
+      /if \(sessionId === null\) return/,
+      'the listener consumes the helper and still refuses without a session',
+    )
+    assert.equal(
+      count(src, /getSnapshot\?\.\(\)\.current/g),
+      1,
+      'and the one guarded read stays inside the helper',
+    )
+  })
+
+  test('currentSessionId keeps the 0.1.5 selection and adds the 0.1.7 identity', () => {
+    const fn = from(readClient(), 'function currentSessionId', 400)
+    assert.match(fn, /getSnapshot\?\.\(\)\.current/, 'the 0.1.5 selection stays the first source')
+    assert.match(fn, /return slotSessionId/, 'and the 0.1.7 slot identity is the fallback')
+  })
+
+  test('the capture bar latches the identity the slot rendered it with', () => {
+    const bar = from(readClient(), 'function CaptureBar(props)', 700)
+    assert.match(bar, /props\.sessionId/, 'SessionStandardProps.sessionId is the 0.1.7 source')
+    assert.match(bar, /slotSessionId = String\(offeredSession\)/, 'latched for the paste path')
+    assert.match(bar, /React\.useEffect/, 'in an effect, so render stays side-effect free')
+  })
+})

@@ -354,10 +354,25 @@ window.__ModuleLoader__.load({
             range.setEnd(to.node, to.offset);
             return range;
         }
+        /**
+         * The session identity the bar was RENDERED for, latched from the slot props.
+         *
+         * Two shapes, measured against both lines: dsh 0.1.5 rode the selection on the
+         * list snapshot (`list.getSnapshot().current`); 0.1.7 moved the selection out of
+         * ClientSessions and dropped that field entirely, but every `scope: 'session'`
+         * slot component is handed the Session identity as a prop instead
+         * (`SessionStandardProps.sessionId`). The bar lives in exactly such a slot
+         * (`conversation.input.overlay`, scope 'session') and is rendered for the
+         * composer on screen — so what it was rendered with IS the session on screen.
+         */
+        let slotSessionId = null;
         /** The agent session on screen right now, or null when there is none. */
         function currentSessionId() {
             const current = sessionsRef?.list?.getSnapshot?.().current;
-            return current ? String(current) : null;
+            if (current)
+                return String(current);
+            // 0.1.7 path: no `current` on the snapshot any more — use the slot identity.
+            return slotSessionId;
         }
         /**
          * A capture belongs to the session that MADE it. Sessions are switched
@@ -535,9 +550,18 @@ window.__ModuleLoader__.load({
             return React.createElement('button', { key, type: 'button', className: 'dsh-auto-paste-bar-button', title, onClick }, label);
         }
         /** The ambient bar over the composer: which paste, how big, view, remove. */
-        function CaptureBar() {
+        function CaptureBar(props) {
             const { capture, present } = React.useSyncExternalStore(subscribeCapture, readCapture);
             const [hintOpen, setHintOpen] = React.useState(false);
+            // dsh 0.1.7 delivers the Session identity through these props; latch it for the
+            // paste path (see slotSessionId). An effect, not a render-time write: render
+            // stays free of side effects, and the latch is idempotent.
+            const offeredSession = props === undefined || props === null ? undefined : props.sessionId;
+            React.useEffect(() => {
+                if (offeredSession === undefined || offeredSession === null)
+                    return;
+                slotSessionId = String(offeredSession);
+            }, [offeredSession]);
             const onScreen = capture !== null && present === true && captureBelongsToCurrentSession(capture);
             const hintWanted = shouldOfferSidebarHint(onScreen);
             // D1: showing it counts as seen. Latched inside an effect, never during render —
@@ -874,12 +898,14 @@ window.__ModuleLoader__.load({
                     console.warn(`[${PACKAGE}] sessions/connection services unavailable — large paste falls back to raw text (check dsh.client.inject in package.json, restart dsh, hard-refresh)`);
                     return;
                 }
-                // The current agent session id (list snapshot `current`); no open
-                // session means no workspace to write into — plain paste.
-                const current = sessions.list.getSnapshot().current;
-                if (!current)
+                // The session that owns this composer; no session means no workspace to
+                // write into — plain paste. Resolved through the ONE helper, which knows
+                // both lines (0.1.5 list.current, 0.1.7 slot identity): reading the
+                // snapshot here directly is what silently disabled every large paste on
+                // 0.1.7, where that field no longer exists.
+                const sessionId = currentSessionId();
+                if (sessionId === null)
                     return;
-                const sessionId = String(current);
                 // Intercept: the large chunk lands in a file and the composer gets
                 // a path reference (Chatbox-like attachment behavior).
                 event.preventDefault();
