@@ -33,8 +33,13 @@ const NOREPLY = 'users.noreply.github.com'
 
 /** Patterns that must never appear. Each reports a category only. */
 const PATTERNS = [
-  ['drive-path', /[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/]/],
-  ['unix-home-path', /\/(?:home|Users)\/[A-Za-z0-9._-]+\//],
+  // The user segment must not start with `<`: that is documentation writing the
+  // SHAPE of a path (e.g. the hooks README stating the rule it blocks), and `<` is
+  // not legal in a Windows user name, so the angle-bracket form can never be an
+  // account. Requiring a segment also stops a bare prefix from reporting itself —
+  // which is what let this gate flag its own allow-list (2026-09-30).
+  ['drive-path', /[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/](?!<)/],
+  ['unix-home-path', /[\\/](?:home|Users)[\\/](?!<)[A-Za-z0-9._-]+\//],
   ['email', /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/],
   ['cn-mobile', /(?:^|[^0-9])1[3-9][0-9]{9}(?:[^0-9]|$)/],
   ['npm-token', /npm_[A-Za-z0-9]{20,}/],
