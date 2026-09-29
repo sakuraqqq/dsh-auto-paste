@@ -37,6 +37,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # 隐私门禁要扫全部历史，浅克隆等于放行
 
       - uses: pnpm/action-setup@v6
         with:
@@ -47,6 +49,10 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
           package-manager-cache: false # 发布构建不做依赖缓存（npm 官方建议）
+
+      # 阻断门：必须在 npm publish 之前，且必须在装依赖之前（纯 node，无依赖）。
+      - name: Privacy gate (identity + history + package)
+        run: node tools/privacy-scan.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

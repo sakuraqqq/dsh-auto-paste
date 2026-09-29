@@ -1,0 +1,218 @@
+#!/usr/bin/env node
+// tools/privacy-scan.mjs — the BLOCKING privacy gate for this repository.
+//
+// Why this file exists (2026-09-29): two independent reviewers found that the
+// 2026-09-13 self-audit had signed off on leaks it could not have seen. It used
+// `git grep` (tree only — structurally blind to history) and checked four commits'
+// AUTHOR field only. The real leaks — a personal email in commit metadata, real
+// machine paths inside historical file content — were reachable only through
+// `git log --all`. A gate that depends on remembering the right command is not a
+// gate, so this runs in CI and in the publish workflow, BEFORE `npm publish`.
+//
+// Three checks, all blocking:
+//   1. IDENTITY — every author AND committer email across ALL history must be a
+//      GitHub noreply address.
+//   2. HISTORY  — the full patch stream (`git log -p --all`) must be free of
+//      machine paths, real email addresses, phone numbers and credential shapes.
+//   3. PACKAGE  — the files that would actually ship must be free of the same,
+//      and must not include private/scratch paths.
+//
+// REDACTION IS A FEATURE: findings report a CATEGORY and a LOCATION, never the
+// matched text. CI logs are public for a public repository, and an audit that
+// echoes the value it found becomes the next leak — the exact failure mode this
+// gate was written after.
+import { spawnSync } from 'node:child_process'
+import { openSync, closeSync, readFileSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { readdirSync } from 'node:fs'
+import { join, dirname, relative, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { tmpdir } from 'node:os'
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const NOREPLY = 'users.noreply.github.com'
+
+/** Patterns that must never appear. Each reports a category only. */
+const PATTERNS = [
+  ['drive-path', /[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/]/],
+  ['unix-home-path', /\/(?:home|Users)\/[A-Za-z0-9._-]+\//],
+  ['email', /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/],
+  ['cn-mobile', /(?:^|[^0-9])1[3-9][0-9]{9}(?:[^0-9]|$)/],
+  ['npm-token', /npm_[A-Za-z0-9]{20,}/],
+  ['github-token', /(?:ghp|gho|ghu|ghs)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}/],
+  ['openai-key', /sk-[A-Za-z0-9]{20,}/],
+  ['aws-key', /AKIA[0-9A-Z]{16}/],
+  ['private-key', /BEGIN [A-Z ]*PRIVATE KEY/],
+]
+
+/**
+ * Literal substrings that are KNOWN SYNTHETIC. Every entry needs a reason: this
+ * list is how a deliberate test fixture stays out of the report without weakening
+ * the check for everything else.
+ */
+const ALLOW = [
+  'C:/Users/someone', // tests/release.test.js placeholder for an absolute paste path
+  'C:\\Users\\someone',
+]
+
+const findings = []
+const note = (check, category, location, detail = '') =>
+  findings.push({ check, category, location, detail })
+
+/** Run git with stdout going straight to a FILE — never a pipe (works in every sandbox). */
+function gitToFile(args, outPath) {
+  const fd = openSync(outPath, 'w')
+  try {
+    const res = spawnSync('git', args, { cwd: ROOT, stdio: ['ignore', fd, 'inherit'] })
+    if (res.error) throw res.error
+    return res.status === 0
+  } finally {
+    closeSync(fd)
+  }
+}
+
+function allowed(line) {
+  return ALLOW.some((token) => line.includes(token))
+}
+
+// ── 1. identity over ALL history ────────────────────────────────────────────
+function checkIdentity(tmp) {
+  const out = join(tmp, 'identities.txt')
+  if (!gitToFile(['log', '--all', '--format=%H|%ae|%ce'], out)) {
+    note('identity', 'git-failed', 'git log --all', 'could not read history')
+    return { commits: 0, domains: [] }
+  }
+  let checked = 0
+  const domains = new Set()
+  for (const line of readFileSync(out, 'utf8').split('\n')) {
+    if (line.trim() === '') continue
+    const [sha, author, committer] = line.split('|')
+    checked += 1
+    for (const [role, value] of [
+      ['author', author],
+      ['committer', committer],
+    ]) {
+      if (value !== undefined && value.endsWith(NOREPLY)) continue
+      // Never print the address: the sha plus the role is enough to fix it. The
+      // domain is aggregated below because it sizes the remediation without
+      // identifying anyone.
+      const domain = value === undefined ? '(missing)' : (value.split('@')[1] ?? '(none)')
+      domains.add(domain)
+      note('identity', `non-noreply-${role}-email`, sha.slice(0, 12), `domain ${domain}`)
+    }
+  }
+  return { commits: checked, domains: [...domains].sort() }
+}
+
+// ── 2. the full patch stream ────────────────────────────────────────────────
+function checkHistory(tmp) {
+  const out = join(tmp, 'history.diff')
+  // `--format=commit %H` is deliberate: the default log header prints an
+  // `Author: … <…@users.noreply.github.com>` line per commit, which the email
+  // pattern would flag as a leak. Drop the header, keep a parseable marker.
+  if (
+    !gitToFile(['log', '-p', '--all', '--no-color', '--no-ext-diff', '--format=commit %H'], out)
+  ) {
+    note('history', 'git-failed', 'git log -p --all', 'could not read history')
+    return 0
+  }
+  let sha = '?'
+  let lines = 0
+  for (const line of readFileSync(out, 'utf8').split('\n')) {
+    lines += 1
+    if (line.startsWith('commit ')) {
+      sha = line.slice(7, 19)
+      continue
+    }
+    if (allowed(line)) continue
+    for (const [category, re] of PATTERNS) {
+      if (re.test(line)) note('history', category, sha, `patch line ${lines}`)
+    }
+  }
+  return lines
+}
+
+// ── 3. what would actually ship ─────────────────────────────────────────────
+function shippedFiles() {
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+  const out = new Set(['package.json', 'README.md', 'LICENSE'])
+  const walk = (abs) => {
+    for (const entry of readdirSync(abs, { withFileTypes: true })) {
+      const child = join(abs, entry.name)
+      if (entry.isDirectory()) walk(child)
+      else out.add(relative(ROOT, child).split(sep).join('/'))
+    }
+  }
+  for (const entry of pkg.files ?? []) {
+    const abs = join(ROOT, entry)
+    try {
+      if (statSync(abs).isDirectory()) walk(abs)
+      else out.add(entry)
+    } catch {
+      /* listed but absent — npm would skip it too */
+    }
+  }
+  return [...out].sort()
+}
+
+function checkPackage() {
+  const shipped = shippedFiles()
+  for (const rel of shipped) {
+    if (/^(?:_|\.私档|pastes|node_modules)/.test(rel)) {
+      note('package', 'private-path-shipped', rel, 'must not be published')
+      continue
+    }
+    let text
+    try {
+      text = readFileSync(join(ROOT, rel), 'utf8')
+    } catch {
+      continue // binary or unreadable: not a text leak surface
+    }
+    const lines = text.split('\n')
+    for (let i = 0; i < lines.length; i += 1) {
+      if (allowed(lines[i])) continue
+      for (const [category, re] of PATTERNS) {
+        if (re.test(lines[i])) note('package', category, `${rel}:${i + 1}`, 'value withheld')
+      }
+    }
+  }
+  return shipped
+}
+
+// ── run ─────────────────────────────────────────────────────────────────────
+const tmp = mkdtempSync(join(tmpdir(), 'dsh-privacy-scan-'))
+let identity = { commits: 0, domains: [] }
+let historyLines = 0
+let shipped = []
+try {
+  identity = checkIdentity(tmp)
+  historyLines = checkHistory(tmp)
+  shipped = checkPackage()
+} finally {
+  rmSync(tmp, { recursive: true, force: true })
+}
+
+const byCheck = (name) => findings.filter((f) => f.check === name)
+console.log(`[privacy] identities checked: ${identity.commits} commits (author + committer)`)
+console.log(`[privacy] history scanned:    ${historyLines} patch lines (git log -p --all)`)
+console.log(`[privacy] package scanned:    ${shipped.length} files that would ship`)
+if (identity.domains.length > 0) {
+  console.log(`[privacy] non-noreply email domains present: ${identity.domains.join(', ')}`)
+}
+
+if (findings.length === 0) {
+  console.log('[privacy] PASS — no identity, history or package finding.')
+  process.exit(0)
+}
+
+console.error(`\n[privacy] FAIL — ${findings.length} finding(s). Values are deliberately withheld.`)
+for (const check of ['identity', 'history', 'package']) {
+  const rows = byCheck(check)
+  if (rows.length === 0) continue
+  console.error(`\n  ${check}:`)
+  for (const row of rows.slice(0, 40)) {
+    console.error(`    - ${row.category}  @ ${row.location}  (${row.detail})`)
+  }
+  if (rows.length > 40) console.error(`    … and ${rows.length - 40} more`)
+}
+console.error('\n  Fix: see .私档/REVIEW-20260929-推送前审查.md (private) for the playbook.')
+process.exit(1)

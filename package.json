@@ -55,7 +55,8 @@
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.js\" \"scripts/**/*.mjs\" \"smoke.mjs\" \"tests/**/*.js\"",
     "format:check": "prettier --check \"src/**/*.js\" \"scripts/**/*.mjs\" \"smoke.mjs\" \"tests/**/*.js\"",
-    "metrics": "node tools/metrics.mjs"
+    "metrics": "node tools/metrics.mjs",
+    "privacy": "node tools/privacy-scan.mjs"
   },
   "dependencies": {
     "zod": "^4.4.3"
