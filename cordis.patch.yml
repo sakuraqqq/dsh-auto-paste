@@ -11,8 +11,13 @@
       name: dsh-auto-paste
       config:
         # Large-paste threshold (chars) — the DEPLOYMENT DEFAULT. A user can
-        # override it in Settings → General ("大段粘贴阈值"); that override lives in
-        # dsh's settings document, applies live, and is what "恢复默认" clears.
+        # override it in Settings → General ("大段粘贴阈值"); that override applies
+        # live and is what "恢复默认" clears. Where it is STORED depends on the dsh
+        # line: 0.1.5 keeps it in dsh's own settings document, while 0.1.7 projects
+        # settings out of each plugin's Config and writes this field back into the
+        # profile patch (this very file). That is why src/index.ts declares it
+        # volatile — without that, dsh generates no form for this plugin and
+        # refuses the write outright.
         # One authority either way: a client bundle never receives a row config
         # (dsh.client accepts only platform/inject/external/immediately, and the
         # boot graph carries no config), so the web client fetches the effective

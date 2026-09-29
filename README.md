@@ -64,7 +64,9 @@ dsh --profile web
 
 改动插件后：`pnpm install && pnpm run build`（tsc → dist/），然后重启 `dsh --profile web` 并刷新页面。
 
-`minChars` 有两个入口：**Settings → General 的「大段粘贴阈值」**（存进 dsh 的设置文档，保存即生效、不用重启；旁边的「恢复默认」清掉这次覆盖），以及 `cordis.patch.yml` 的 row config（**部署默认值**，改完只需重启 dsh、不用重新构建）。用户设置优先，没设置时用部署默认值；部署里没有 settings 提供方时，设置行会说明原因并禁用保存。
+`minChars` 有两个入口：**Settings → General 的「大段粘贴阈值」**（保存即生效、不用重启；旁边的「恢复默认」清掉这次覆盖），以及 `cordis.patch.yml` 的 row config（**部署默认值**，改完只需重启 dsh、不用重新构建）。用户设置优先，没设置时用部署默认值。
+
+覆盖值存在哪里随 dsh 线而变，保存后都立即生效：**0.1.5** 存进 dsh 自己的设置文档；**0.1.7 起** dsh 改成"从插件自己的 Config 投影"，覆盖值写回 profile patch（同一个 `cordis.patch.yml`）—— 所以本插件把 `minChars` 声明为 schemastery 的 volatile 字段：没有它，dsh 不会为该插件生成表单，写入也会被拒。当前 dsh 无法在界面保存时（没有 settings 服务、或该线不支持 volatile），设置行会说明原因并禁用保存。
 
 host 始终是唯一权威：客户端半身拿不到 row config（dsh 的 `dsh.client` 只认 platform/inject/external/immediately，启动图里不带 config），它在启动时、以及每次保存设置后，都用 `pasteStore/getConfig` RPC 取生效值；取不到时用 500 兜底并在控制台标出来源。`maxBytes` 只有 row config 一个入口（属部署口径）。
 
