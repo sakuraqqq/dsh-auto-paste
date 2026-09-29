@@ -252,16 +252,21 @@ function registeredWorkspaces(ctx) {
 }
 /**
  * Build the refusal error. Deliberately actionable — it states WHY the write was
- * refused, WHICH session was involved, EVERY workspace currently registered, and
- * HOW to recover. It never offers a fallback: silently writing into the wrong
+ * refused, WHICH session was involved, WHICH workspaces are currently registered,
+ * and HOW to recover. It never offers a fallback: silently writing into the wrong
  * workspace is worse than a visible failure.
+ *
+ * The workspaces are named by FOLDER, never by absolute path: this text lands in
+ * session output, and a user who pastes it into a public issue would otherwise
+ * publish their own machine layout (re-specified 2026-09-29 after the independent
+ * privacy review; the folder names still tell the candidates apart).
  */
 function workspaceRefusal(reason, workspaces, sessionId) {
     const who = sessionId === undefined ? 'this call carried no session id' : `session "${sessionId}"`;
     const list = workspaces
         .map((workspace) => {
         const n = workspace.sessionIds.length;
-        return `  - ${workspace.path}  (${n} session${n === 1 ? '' : 's'})`;
+        return `  - ${basename(workspace.path)}  (${n} session${n === 1 ? '' : 's'})`;
     })
         .join('\n');
     return new Error(`[dsh-auto-paste] refusing to save the paste: ${reason} (${who}).\n` +
@@ -531,7 +536,8 @@ export function apply(ctx, config = {}) {
             // dsh-controlled in practice, but never trust it blindly).
             const registered = registeredWorkspaces(ctx) ?? [];
             if (!isRegisteredWorkspace(dir, registered)) {
-                throw new Error(`save_paste: refusing to write outside a registered workspace (${dir})`);
+                // Folder name only — same privacy rule as workspaceRefusal above.
+                throw new Error(`save_paste: refusing to write outside a registered workspace (${basename(dir)})`);
             }
             return publicPasteRef(await savePasteTo(dir, args.text, new Date(), maxBytes, args.label));
         },

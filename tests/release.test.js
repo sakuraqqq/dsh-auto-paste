@@ -104,8 +104,16 @@ describe('resolveWorkspaceDir — strict session→workspace routing (no silent 
       assert.fail('expected an unknown session to be refused')
     } catch (err) {
       assert.match(err.message, /nobody/) // why: which session was involved
-      assert.match(err.message, /C:\/ws-a/) // what exists
-      assert.match(err.message, /C:\/ws-b/)
+      // Re-specified 2026-09-29 (independent privacy review): the message identifies
+      // the workspaces by FOLDER NAME. It used to spell out each absolute path, so a
+      // user pasting this error into a public issue published their machine layout.
+      assert.match(err.message, /\bws-a\b/) // what exists — by folder name only
+      assert.match(err.message, /\bws-b\b/)
+      assert.doesNotMatch(
+        err.message,
+        /[A-Za-z]:[\\/]/,
+        'no drive-letter path may ride along in session text',
+      )
       assert.match(err.message, /How to fix/i) // how to recover
     }
   })
