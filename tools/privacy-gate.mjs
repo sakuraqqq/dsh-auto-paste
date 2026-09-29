@@ -369,12 +369,36 @@ try {
     mode = 'stdin-refs（本次要推送的提交）'
     const stdin = readFileSync(0, 'utf8')
     const zero = /^0{40}$/
+    /**
+     * 某个 revision 在本地是否解析得到。
+     * 为什么需要它：`remoteSha..localSha` 假设**远端那个 SHA 在本地一定存在**。
+     * 历史重写（filter-repo / rebase / amend）恰恰让远端 SHA 在本地**不再可达**
+     * ⇒ git 报 `Invalid revision range` ⇒ 本门禁 fail-closed **阻断推送**，
+     * 把「重写后的历史推不上去」变成死锁（2026-09-30 实测踩到）。
+     */
+    const revExists = (rev) => {
+      const r = spawnSync('git', ['cat-file', '-e', `${rev}^{commit}`], { cwd, stdio: 'ignore' })
+      return r.status === 0
+    }
     for (const line of stdin.split('\n')) {
       const [, localSha, , remoteSha] = line.trim().split(/\s+/)
       if (!localSha) continue
-      const args = zero.test(remoteSha ?? '')
+      // 删除远端引用时 localSha 是全零：没有任何内容会被推上去，无从扫也无须扫。
+      // 不跳过的话 `git log 000…0` 会 `bad object` ⇒ exit 2 ⇒ 连删除分支都推不动
+      // （2026-09-30 由 .私档/test-stdin-refs.mjs 的 D 用例翻出来）。
+      if (zero.test(localSha)) continue
+      const firstPush = zero.test(remoteSha ?? '')
+      // force-push（远端对象本地已不可达）时，范围无从谈起，只能扫本侧可达的全部提交。
+      // 取舍：范围偏大 ⇒ 可能重复报出远端早已存在的历史欠债；但它**不会漏**，
+      // 而漏报才是这道门唯一不可接受的失败。
+      const forced = !firstPush && !revExists(remoteSha)
+      const args = firstPush || forced
         ? ['log', '-p', '--no-color', '--no-ext-diff', '--format=commit %H', localSha, '--not', '--remotes']
         : ['log', '-p', '--no-color', '--no-ext-diff', '--format=commit %H', `${remoteSha}..${localSha}`]
+      if (forced) {
+        console.error(`  · 检测到 force-push（远端 ${remoteSha.slice(0, 12)} 在本地已不可达）`)
+        console.error(`    本次按「本侧可达的全部提交」扫描 —— 范围偏大但不会漏；不是故障。`)
+      }
       const r = gitToFile(args, outFile, cwd)
       if (!r.ok) {
         console.error(`✗ 隐私门禁：读不到推送范围（${r.err}）⇒ fail-closed，阻断推送。`)
