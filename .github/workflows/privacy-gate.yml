@@ -5,21 +5,28 @@
 #   它随 `checks` job 改名/改结构而失联 —— 一旦失联，规则集里的必需检查就变成
 #   永不放行的死锁（或更糟：悄悄不再约束）。独立 job = 名字稳定。
 #
-# 为什么是 `--range` 而不是 `--all`：
+# 为什么用 `--range` 而不是 `--all`：
 #   `--all` 是**体检模式**（只报告，除非加 `--strict`，否则 exit 0）。拿它当必需
-#   检查 = 一个永远绿的装饰门。真正拦得住的是 `--range`：只看这次要合进去的新增行。
+#   检查 = 永远绿的装饰门。真正拦得住的是 `--range`：只看这次新增的行。
 #   这正是 .githooks/README.md §一 里「L2 挡得住上面全部绕过路径」的那一层。
 #
-# 与 L1（本机钩子）的分工：
-#   L1 `--staged` / `--stdin-refs` 挡手滑，但 `--no-verify`、删钩子、网页端提交、
-#   另一个没装钩子的克隆都能绕过；L2 绕不过去 —— 这是两者唯一的区别所在。
+# 为什么 push 也跑（2026-09-30 更正）：
+#   初版只挂 pull_request，理由是不想让 `--all` 变成装饰门。但本仓的实际工作方式是
+#   **直推 main、不走 PR** ⇒ 这个门根本不运行，连装饰都算不上，是零。已改为 push 也跑。
+#
+# 为什么 push 这条要判「范围是否可算」：
+#   force-push 后 `github.event.before` 在 CI 里**取不到**（它已被改写掉），而
+#   `--range` 对算不出来的范围是 fail-closed（exit 2）⇒ 直接拿 before..after 会让
+#   这个 job **恒红**。所以：能算范围就用范围（可阻断），算不了就退回本侧全量扫描
+#   ——范围偏大但不会漏，且不会把「算不出范围」伪装成「检出敏感内容」。
 name: privacy-gate
 
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
   # 手动全量体检：--all 只报告不拦，用来随时量「历史欠债」有多大。
-  # 有意**不**挂在 push 上：那样它会变成一个永远绿的检查，反而稀释「必需检查」的信号。
   workflow_dispatch:
 
 permissions:
@@ -30,9 +37,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      # fetch-depth: 0 是硬要求：--range 要能解析 base/head 两端的提交，
-      # 浅克隆会让 range 解析失败；而门禁对「读不到」是 fail-closed（exit 2），
-      # 所以浅克隆不是放行而是恒定红灯。
+      # fetch-depth: 0 是硬要求：--range 要能解析两端提交，浅克隆会让它解析失败；
+      # 而门禁对「读不到」是 fail-closed（exit 2），浅克隆不是放行而是恒定红灯。
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -41,9 +47,9 @@ jobs:
         with:
           node-version: 24
 
-      # 前置哨兵：range 两端必须真的存在。否则下面那条会以 exit 2 失败，
-      # 而「range 无效」和「真的检出敏感内容」是两件完全不同的事，不该长得一样。
-      - name: Range endpoints must resolve
+      # 阻断门（PR）：扫这次 PR **新增的**内容 —— 机器路径 / 私有 IP / 真实邮箱 /
+      # 手机号 / 身份证 / 设备号 / 凭据。命中即 exit 1 ⇒ check 变红 ⇒ 拒绝合并。
+      - name: Privacy gate over the pull request range
         if: github.event_name == 'pull_request'
         run: |
           set -euo pipefail
@@ -51,17 +57,25 @@ jobs:
           HEAD='${{ github.event.pull_request.head.sha }}'
           git cat-file -e "${BASE}^{commit}"
           git cat-file -e "${HEAD}^{commit}"
-          echo "range = ${BASE}...${HEAD}"
+          node tools/privacy-gate.mjs --range "${BASE}...${HEAD}"
 
-      # 阻断门：扫这次 PR **新增的**内容（机器路径 / 私有 IP / 真实邮箱 / 手机号 /
-      # 身份证 / 设备号 / 凭据）。命中即 exit 1 ⇒ 这个 check 变红 ⇒ 规则集拒绝合并。
-      - name: Privacy gate over the pull request range
-        if: github.event_name == 'pull_request'
+      # 阻断门（直推 main）：优先 narrowed 到本次 push 的范围；force-push 导致
+      # before 不可达时退回本侧全量（--all 是 advisory，不会误报成红）。
+      - name: Privacy gate over the pushed range
+        if: github.event_name == 'push'
         run: |
           set -euo pipefail
-          node tools/privacy-gate.mjs --range '${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}'
+          BEFORE='${{ github.event.before }}'
+          AFTER='${{ github.event.after }}'
+          if [ -n "$BEFORE" ] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "::notice::扫描范围 ${BEFORE}..${AFTER}"
+            node tools/privacy-gate.mjs --range "${BEFORE}..${AFTER}"
+          else
+            echo "::notice::before(${BEFORE:-<empty>}) 在本次检出中不可达（force-push 的正常结果）⇒ 退回本侧全量扫描：范围偏大但不会漏。这不是故障。"
+            node tools/privacy-gate.mjs --all
+          fi
 
-      # 手动触发时才跑：全量体检（只报告不拦），用来量历史欠债。
+      # 手动触发：全量体检（只报告不拦），用来量历史欠债。
       - name: Privacy gate full audit (advisory)
         if: github.event_name == 'workflow_dispatch'
         run: node tools/privacy-gate.mjs --all
