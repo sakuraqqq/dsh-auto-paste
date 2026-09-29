@@ -1,0 +1,11 @@
+#!/bin/sh
+# privacy gate (pre-push)
+#
+# Scans the commits that are ACTUALLY being pushed (refs arrive on stdin).
+# This is the last local line of defence: it catches anything that got past
+# pre-commit -- via --no-verify, another tool, or a merge that pulled in
+# commits made elsewhere.
+#
+# Bypass: git push --no-verify   (discrete and auditable)
+
+exec node "$(git rev-parse --show-toplevel)/tools/privacy-gate.mjs" --stdin-refs

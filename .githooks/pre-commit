@@ -1,0 +1,13 @@
+#!/bin/sh
+# privacy gate (pre-commit)
+#
+# Blocks NEW sensitive content (machine paths, private IPs, real emails,
+# phone/ID numbers, device ids, credentials) in the STAGED diff.
+#
+# Only scans what this commit ADDS -- legacy debt in history is reported by
+# `--all`, never blocked here. A gate that is always red gets ignored.
+#
+# Bypass: git commit --no-verify   (discrete and auditable; do not make it a habit)
+# Bypass does NOT help if the server-side check is a required status check.
+
+exec node "$(git rev-parse --show-toplevel)/tools/privacy-gate.mjs" --staged
