@@ -6,6 +6,7 @@ import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 import {
@@ -1170,5 +1171,57 @@ describe('large pastes survive dsh 0.1.7 dropping list.current (2026-09-29)', ()
     assert.match(bar, /props\.sessionId/, 'SessionStandardProps.sessionId is the 0.1.7 source')
     assert.match(bar, /slotSessionId = String\(offeredSession\)/, 'latched for the paste path')
     assert.match(bar, /React\.useEffect/, 'in an effect, so render stays side-effect free')
+  })
+})
+
+describe('privacy-gate pre-push — a force-push is not a blocked push (2026-09-30)', () => {
+  /**
+   * Git hands pre-push a stream of `<local-ref> <local-sha> <remote-ref> <remote-sha>`.
+   *
+   * The bug (measured 2026-09-30): the gate computed `remoteSha..localSha` and assumed
+   * the REMOTE sha resolves locally. After a history rewrite it does not — the remote
+   * still pointed at the pre-rewrite commit — so git answered `unknown revision`,
+   * the gate failed closed (exit 2), and the cleaned history could NOT be pushed.
+   * The gate meant to protect the rewrite was the thing preventing it.
+   *
+   * Assertion: fall back to the local side, and SAY so. An unexplained wider scan
+   * reads like a malfunction, which is how it was first reported.
+   */
+  test('an unreachable remote sha (force-push) falls back instead of blocking', () => {
+    const gate = join(PKG_ROOT, 'tools', 'privacy-gate.mjs')
+    const localSha = spawnSync('git', ['rev-parse', 'HEAD'], {
+      cwd: PKG_ROOT,
+      encoding: 'utf8',
+    }).stdout.trim()
+    // A commit that exists on the remote but was discarded by the rewrite.
+    const unreachable = '69b8c6b627f3851b7e468432d1f9ee7230a7c5a4'
+    const res = spawnSync('node', [gate, '--stdin-refs'], {
+      cwd: PKG_ROOT,
+      input: `refs/heads/main ${localSha} refs/heads/main ${unreachable}\n`,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      encoding: 'utf8',
+    })
+    const output = `${res.stdout}${res.stderr}`
+    assert.notEqual(res.status, 2, `must not fail closed on a force-push: ${output}`)
+    assert.match(output, /force-push/, 'the broader scan must be explained, not silent')
+  })
+
+  /**
+   * NOT a regression lock — genuinely green before the fix too. `000…0..000…0` is an
+   * empty range, so the old code never actually crashed on a deletion; an earlier
+   * claim that it did was wrong and was caught by reverse-patching the fix. Kept as a
+   * cheap guard so a deletion can never start failing closed in future.
+   */
+  test('an all-zero local ref (branch deletion) exits 0', () => {
+    const gate = join(PKG_ROOT, 'tools', 'privacy-gate.mjs')
+    const ZERO = '0'.repeat(40)
+    const anySha = '69b8c6b627f3851b7e468432d1f9ee7230a7c5a4'
+    const res = spawnSync('node', [gate, '--stdin-refs'], {
+      cwd: PKG_ROOT,
+      input: `(delete) ${ZERO} refs/heads/gone ${anySha}\n`,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      encoding: 'utf8',
+    })
+    assert.equal(res.status, 0, `a deletion must not fail closed — exit ${res.status}`)
   })
 })

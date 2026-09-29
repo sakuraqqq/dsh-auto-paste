@@ -384,8 +384,9 @@ try {
       const [, localSha, , remoteSha] = line.trim().split(/\s+/)
       if (!localSha) continue
       // 删除远端引用时 localSha 是全零：没有任何内容会被推上去，无从扫也无须扫。
-      // 不跳过的话 `git log 000…0` 会 `bad object` ⇒ exit 2 ⇒ 连删除分支都推不动
-      // （2026-09-30 由 .私档/test-stdin-refs.mjs 的 D 用例翻出来）。
+      // 诚实说明：`000…0..000…0` 恰好是个**空范围**，所以旧实现并不会在这里崩
+      // （反向打补丁实测 exit 0）；这一行是显式意图 + 防止将来改成别的范围算法后
+      // 反而崩掉，不是已发生故障的修复。
       if (zero.test(localSha)) continue
       const firstPush = zero.test(remoteSha ?? '')
       // force-push（远端对象本地已不可达）时，范围无从谈起，只能扫本侧可达的全部提交。
