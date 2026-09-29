@@ -668,17 +668,45 @@ describe('review batch A/B (2026-09-12) — release pipeline, wire cap, client h
   const readClient = () => readSrc('src', 'client.js')
   const readHost = () => readSrc('src', 'index.ts')
 
-  // A1 — the tag must point at the bump commit, and publishing belongs to
-  // .github/workflows/publish.yml (OIDC, triggered by the tag push).
-  test('release.mjs commits the version bump BEFORE tagging, and never publishes locally', () => {
+  // A1 — publishing belongs to .github/workflows/publish.yml (OIDC, triggered by the
+  // tag push). 2026-09-30: the flow changed from "commit → tag → push main" to
+  // "commit → push branch → PR → (merge) → tag". Two reasons, both structural:
+  //   1. the repo ruleset requires the `gate` check with NO bypass, and GitHub
+  //      evaluates required checks at PUSH time while a check can only run AFTER the
+  //      commit arrives — so a direct push to main can never satisfy it;
+  //   2. the merge commit is created by GitHub, so its SHA is unknown locally — a tag
+  //      made before the merge would sit on the branch commit, one step behind main.
+  // The bump is still committed before any tag exists, which is the property that
+  // actually matters: a tag must never point at the previous version.
+  test('release.mjs commits the bump, ships it via a PR, and tags only AFTER the merge', () => {
     const src = readSrc('scripts', 'release.mjs')
     const commit = src.indexOf('git add package.json')
-    const tag = src.indexOf('git tag v')
-    assert.ok(commit >= 0, 'the version bump must be committed by the script')
-    assert.ok(tag >= 0, 'the script must still tag the release')
-    assert.ok(
-      commit < tag,
-      'commit → tag → push: a tag created before the bump points at the previous version',
+    assert.ok(commit >= 0, 'the version bump must still be committed by the script')
+    assert.doesNotMatch(
+      src,
+      /sh\(`git push origin main/,
+      'the script must not EXECUTE a direct push to main (help text may still mention main)',
+    )
+    assert.match(src, /gh pr create/, 'the bump must travel to main through a pull request')
+    // 阶段 7 的**提示输出**才是"合并后做什么"的权威位置。只看 commit 之后那一段，且
+    // 要求它确实被 console.log 打印出来 —— `--finish` 的报错指引里也会提到同样的命令
+    // （那是给"发现没有 tag"的人看的），拿全文 index 比较会误判。
+    // 注意这两行在源码里的引号形态不同：不含插值的那行用单引号，含 ${tagCmd} 的用反引号。
+    const afterCommit = src.slice(commit)
+    assert.match(
+      afterCommit,
+      /console\.log\(' + git checkout main && git pull --ff-only'\)/,
+      'the post-merge instructions must be PRINTED in the post-merge step',
+    )
+    assert.match(
+      afterCommit,
+      /console\.log\(`\s+\$\{tagCmd\}`\)/,
+      'the tag command must be printed as the post-merge step, not created by the script',
+    )
+    assert.match(
+      src,
+      /const tagCmd = `git tag v\$\{target\}/,
+      'the tag command must still exist in the script — as the post-merge step',
     )
     assert.doesNotMatch(
       src,
