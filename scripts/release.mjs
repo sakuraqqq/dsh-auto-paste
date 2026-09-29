@@ -16,7 +16,7 @@
 //   4. test（质量门）
 //   5. npm pack --dry-run（核对发布清单）
 //   6. git commit → tag → push（顺序不能反：tag 必须指向 bump 提交）
-//   7. gh release（gh 已登录则发，附 changelog）
+//   7. gh release（gh 已登录则发；notes 优先用仓库里的 RELEASE-NOTES-v<版本>.md）
 //   8. 发布状态提示（发布在 CI，异步完成；核验命令见输出）
 //
 // ⚠️ 本脚本**不发布**：推 tag 会触发 .github/workflows/publish.yml
@@ -24,7 +24,7 @@
 //    脚本只负责「造出指向 bump 提交的 tag 并推上去」。
 // ⚠️ 设计约束：必须在用户自己的 shell 跑（沙箱内 git push/token 不可用）。
 import { execSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -173,26 +173,39 @@ ok(`v${target} 已推送 — publish.yml（OIDC）据此发布，dist-tag: next`
 
 // ── 阶段 7: GitHub Release（gh 可用则发）────────────────
 log('阶段 7/8  GitHub Release（gh CLI 可选）')
+// 手写的 release notes 优先（0.1.5 起）：仓库里那份是给人读的，比脚本拼出来的
+// commit 列表好一截。只有缺失时才回退到 changelog。
+const handWritten = join(ROOT, `RELEASE-NOTES-v${target}.md`)
+const hasHandWritten = existsSync(handWritten)
 let ghNote = ''
-try {
-  const changelog = sh(`git log --oneline v${current}..HEAD`, { silent: true })
-  if (changelog)
-    ghNote =
-      'Changelog:\n' +
-      changelog
-        .split('\n')
-        .map((l) => '  ' + l)
-        .join('\n')
-} catch {
-  /* 无上个 tag 或空，忽略 */
+if (!hasHandWritten) {
+  try {
+    const changelog = sh(`git log --oneline v${current}..HEAD`, { silent: true })
+    if (changelog)
+      ghNote =
+        'Changelog:\n' +
+        changelog
+          .split('\n')
+          .map((l) => '  ' + l)
+          .join('\n')
+  } catch {
+    /* 无上个 tag 或空，忽略 */
+  }
 }
 try {
   sh('gh auth status', { silent: true })
-  const notes = `Release ${target}\n\n${ghNote || '（无 changelog）'}`
-  const notesFile = join(ROOT, '.release-notes.md')
-  writeFileSync(notesFile, notes, 'utf8')
+  let notesFile = handWritten
+  if (!hasHandWritten) {
+    notesFile = join(ROOT, '.release-notes.md')
+    writeFileSync(notesFile, `Release ${target}\n\n${ghNote || '（无 changelog）'}\n`, 'utf8')
+  }
   sh(`gh release create v${target} --notes-file "${notesFile}" --title "v${target}"`)
-  ok(`GitHub Release v${target} 已创建`)
+  ok(
+    `GitHub Release v${target} 已创建` +
+      (hasHandWritten
+        ? `（notes 源 = RELEASE-NOTES-v${target}.md）`
+        : '（notes 源 = 自动 changelog）'),
+  )
 } catch {
   console.log('  （gh 未登录或不可用 — 跳过 GitHub Release，可稍后在网页手动补）')
 }

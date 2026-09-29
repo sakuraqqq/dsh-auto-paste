@@ -5,8 +5,8 @@
 
 ## Release / 发布状态
 
-- **npm**：`dsh-auto-paste@0.1.3`（[npm 页面](https://www.npmjs.com/package/dsh-auto-paste)）—— 已发布到官方源 `registry.npmjs.org`，`dist-tag: latest`。安装：`npm i dsh-auto-paste`（或 `--save-exact` 锁版）。
-- **源仓库**：`https://github.com/sakuraqqq/dsh-auto-paste`，tag `v0.1.0`。
+- **npm**：[npm 页面](https://www.npmjs.com/package/dsh-auto-paste) —— 官方源 `registry.npmjs.org`。发版策略：新版本先发到 `dist-tag: next` 观察，再人工转为 `latest` —— `npm i dsh-auto-paste` 装到的就是当时的 `latest`。**本版 `0.1.5`**：一个包同时兼容 dsh `0.1.5` 线与 `0.1.7` 线。
+- **源仓库**：`https://github.com/sakuraqqq/dsh-auto-paste`（tag 与版本号一一对应）。
 - **许可**：MIT（见下）。
 - **同步提示**：npm 发布后国内镜像（npmmirror）同步有几秒到几分钟延迟，以官方 registry 为准。
 
@@ -46,7 +46,7 @@ MIT License — Copyright (c) 2026 misakamaster。
 
 ```sh
 npm i dsh-auto-paste                          # 最新版（dist-tag: latest）；--save-exact 可锁版
-npm i dsh-auto-paste@0.1.3                    # 或指定版本
+npm i dsh-auto-paste@0.1.5                    # 或指定版本（换成你要的版本号）
 # 在插件父目录执行，以包名注册到目标 profile：
 dsh plugin --profile web add dsh-auto-paste
 dsh --profile web            # 重启 web profile，观察: [dsh-auto-paste] host ready ...
