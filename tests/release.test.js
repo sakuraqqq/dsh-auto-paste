@@ -79,6 +79,110 @@ describe('savePasteTo — write/read-back roundtrip', () => {
   })
 })
 
+// The roundtrip above proves the common case. These are the shapes that break
+// naive writers: line-ending normalization, a paste with no line breaks at all,
+// leading/trailing blank lines, a BOM the user actually pasted, and the encoding
+// question — the file must be UTF-8 bytes, never the console code page.
+describe('savePasteTo — encoding & shape stress (2026-10-01)', () => {
+  const STAMP = new Date(2026, 9, 1, 7, 30, 0, 0)
+  const rawOf = (dir, rel) => readFile(join(dir, rel))
+
+  test('CRLF survives verbatim — no newline normalization in either direction', async () => {
+    const dir = await tmpDir()
+    try {
+      const text = 'a\r\nb\r\n\r\nc\r\n'
+      const result = await savePasteTo(dir, text, STAMP)
+      assert.equal(result.bytes, Buffer.byteLength(text, 'utf8'))
+      assert.equal(await readFile(join(dir, result.path), 'utf8'), text)
+      const raw = await rawOf(dir, result.path)
+      assert.equal(raw.filter((b) => b === 0x0d).length, 4, 'every CR reached the disk')
+      assert.equal(raw.filter((b) => b === 0x0a).length, 4, 'and so did every LF')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a single very long line (no line break anywhere) survives intact', async () => {
+    const dir = await tmpDir()
+    try {
+      // One 60 KB line: 20k CJK chars (3 bytes each) plus a tail marker.
+      const text = `${'中'.repeat(20000)}END`
+      const result = await savePasteTo(dir, text, STAMP)
+      assert.equal(result.chars, text.length)
+      assert.equal(result.bytes, 60000 + 3)
+      const back = await readFile(join(dir, result.path), 'utf8')
+      assert.equal(back, text)
+      assert.equal(back.includes('\n'), false, 'nothing invented a line break')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('blank lines — leading, consecutive and trailing — survive verbatim', async () => {
+    const dir = await tmpDir()
+    try {
+      const text = '\n\n\nstart\n\n\n\nend\n\n'
+      const result = await savePasteTo(dir, text, STAMP)
+      const back = await readFile(join(dir, result.path), 'utf8')
+      assert.equal(back, text)
+      assert.equal(back.startsWith('\n\n\n'), true, 'leading blanks kept')
+      assert.equal(back.endsWith('end\n\n'), true, 'trailing blanks kept')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('no BOM is ever added, and a U+FEFF the user pasted is preserved as content', async () => {
+    const dir = await tmpDir()
+    try {
+      const plain = await savePasteTo(dir, '中文内容', STAMP)
+      const plainRaw = await rawOf(dir, plain.path)
+      assert.notDeepEqual(
+        [...plainRaw.subarray(0, 3)],
+        [0xef, 0xbb, 0xbf],
+        'the writer must not prepend a UTF-8 BOM',
+      )
+      // A leading U+FEFF inside the pasted TEXT is content, not a mark the writer
+      // added — it has to round-trip like any other character.
+      const withMark = '\uFEFF开头就带 BOM 字符'
+      const marked = await savePasteTo(dir, withMark, new Date(2026, 9, 1, 7, 30, 1, 0))
+      assert.equal(await readFile(join(dir, marked.path), 'utf8'), withMark)
+      const markedRaw = await rawOf(dir, marked.path)
+      assert.deepEqual(
+        [...markedRaw.subarray(0, 3)],
+        [0xef, 0xbb, 0xbf],
+        'the user’s own U+FEFF is on disk',
+      )
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('the bytes on disk are exactly the UTF-8 encoding (never a GBK/code-page spelling)', async () => {
+    const dir = await tmpDir()
+    try {
+      // Every character here has a different GBK/CP936 encoding, or none at all
+      // (emoji, full-width forms, ideographic space), so a byte-exact comparison
+      // against Buffer.from(text, 'utf8') is what separates "wrote UTF-8" from
+      // "wrote whatever the console code page was".
+      const text = '中文标点：，。！？　全角空格\nemoji 🎉🚀 代理对\nｆｕｌｌｗｉｄｔｈ\n'
+      const result = await savePasteTo(dir, text, STAMP)
+      const raw = await rawOf(dir, result.path)
+      assert.deepEqual(raw, Buffer.from(text, 'utf8'), 'byte-for-byte UTF-8')
+      assert.equal(result.bytes, raw.length)
+      const back = raw.toString('utf8')
+      assert.equal(back, text)
+      assert.equal(
+        back.includes('\uFFFD'),
+        false,
+        'no replacement char — nothing was re-encoded lossily',
+      )
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('resolveWorkspaceDir — strict session→workspace routing (no silent fallback)', () => {
   const ctxWith = (workspaces) => ({
     get(name) {
@@ -277,82 +381,140 @@ describe('static regression guards — past bugs must not resurrect', () => {
     assert.match(src, /method: 'setMinChars'/)
   })
 
-  test('the capture bar sits in a seat dsh actually paints, and reuses betterSidebar', () => {
+  test('the sidebar hint sits in the seat dsh actually paints', () => {
     const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
-    // Seat choice is evidence-driven: conversation.composer.dock laid the pill out
-    // (probe: rect 333x24, real box) inside a class-less wrapper the host never
-    // paints, so the bar moved into the composer overlay anchor — the very strip
-    // the shipped input-bar toast visibly uses.
+    // Seat choice is evidence-driven: conversation.composer.dock laid the old pill out
+    // (probe: rect 333x24, real box) inside a class-less wrapper the host never paints,
+    // so it moved into the composer overlay anchor — the very strip the shipped
+    // input-bar toast visibly uses. The one-shot hint inherited that seat.
     assert.match(
       src,
       /slots\.inject\('conversation\.input\.overlay'/,
-      'the bar shares the proven-visible composer overlay seat',
+      'the hint shares the proven-visible composer overlay seat',
     )
+    // The pill was the ONLY caller of betterSidebar's file API. With it gone the
+    // capability probe has to be gone too: a surviving `features.includes('openFile')`
+    // would mean something still intends to call that API (2026-10-01 decision).
+    assert.doesNotMatch(src, /\.openFile\(/, 'no betterSidebar file API call remains')
+  })
+
+  test('the mention has ONE source, and the text fallback keeps its own', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
     assert.match(
       src,
-      /features\.includes\('openFile'\)/,
-      'the openFile capability must be probed before use (the documented gate)',
+      /function pasteReference\(/,
+      'the fallback builder must stay a named function',
     )
-    assert.match(src, /\.openFile\(/, 'viewing a paste is one betterSidebar call')
-  })
-
-  test('the reference string has ONE source, used by both insert and remove', () => {
-    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
-    assert.match(src, /function pasteReference\(/, 'the reference builder must be a named function')
     const uses = src.match(/pasteReference\(/g) ?? []
     assert.ok(uses.length >= 2, 'insertion and removal must both go through the same builder')
-    const literals = src.match(/已保存大段粘贴为附件/g) ?? []
-    assert.equal(literals.length, 1, 'the reference literal must live in exactly one place')
+    // TWO builders exist since the atomic-chip path landed, and each spells its own
+    // string exactly once: the chip's mention (which is also the model text, because
+    // the reference source serializes by returning `ref`) and the plain-text
+    // fallback. A third inlined copy anywhere is exactly the drift this guards.
+    const mentions = src.match(/`@"\$\{path\}"`/g) ?? []
+    assert.equal(mentions.length, 1, 'the @"<path>" mention lives in exactly one place')
+    const tokens = src.match(/` @"\$\{path\}" \(\$\{chars\} 字符\)`/g) ?? []
+    assert.equal(tokens.length, 1, 'and the text fallback lives in exactly one place')
   })
 
-  test('removal hands the edit to the editor as beforeinput, not through execCommand', () => {
+  test('the atomic chip payload matches the reference source contract', () => {
     const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
-    // Measured 2026-09-12 (dsh 0.1.5-rc.1 + Chrome, instrumented composer):
-    // `document.execCommand('delete')` empties the DOM text and fires only an
-    // `input` event — Lexical adopts edits through `beforeinput` alone, so with an
-    // unchanged model it re-rendered the reference straight back (textLen
-    // 53 → 0 → 53 inside that single command). The edit is therefore handed over in
-    // the shape Lexical's handler consumes: a `beforeinput` whose
-    // `getTargetRanges()` returns the reference's range.
-    //
-    // The assertions below run on CODE with block comments removed: the source is
-    // SUPPOSED to keep documenting the refuted command path in prose, and that
-    // history must not read as a violation.
-    const code = src.replace(/\/\*[\s\S]*?\*\//g, '')
-    assert.match(
-      code,
-      /new InputEvent\('beforeinput'/,
-      'the edit must be announced, not performed behind the editor',
-    )
-    assert.match(code, /inputType: 'deleteContentBackward'/)
-    assert.match(code, /getTargetRanges/, 'Lexical reads the target range from this method')
-    assert.doesNotMatch(
-      code,
-      /execCommand\('delete'\)/,
-      'the reverted command path must not come back as the deletion mechanism',
-    )
-    assert.doesNotMatch(
-      code,
-      /deleteContents\(\)[\s\S]{0,200}已保存大段粘贴/,
-      'no hand-rolled deletion of the reference',
-    )
-  })
-
-  test('the removal verdict is read asynchronously and the fallback is actionable', () => {
-    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
-    const start = src.indexOf('function removeCapture')
-    assert.ok(start >= 0, 'removeCapture must exist')
-    const body = src.slice(start, src.indexOf('function openCapture', start))
-    // The editor re-renders on its own schedule: right after the hand-off the DOM
-    // still shows the reference (measured: textLen 53 at dispatch, 0 one task
-    // later), so a synchronous verdict would report a failure that never happened.
-    assert.match(body, /window\.setTimeout\(/, 'the verdict must be read one task later')
-    assert.match(body, /按 Backspace 删除/, 'when the hand-off fails, say exactly what to press')
+    const start = src.indexOf('function referenceChipOf')
+    assert.ok(start >= 0, 'referenceChipOf must exist')
+    const body = src.slice(start, src.indexOf('async function insertReferenceChip', start))
+    // dsh-client-ui-reference reads these fields at insert time and caches them on
+    // the chip node: `source` is the serializer routing key, `appearance: 'file'`
+    // is what lets a click act at all (openReference early-returns otherwise), and
+    // `label` is what the chip DISPLAYS — the basename, so no directory leaks into
+    // the draft, plus the frozen size (2026-10-01 decision: a card that showed only
+    // a filename hid how big the paste was).
+    assert.match(body, /source: 'reference'/, 'the @file/@session source is the routing key')
+    assert.match(body, /appearance: 'file'/, 'openReference refuses every other appearance')
     assert.match(
       body,
-      /textRangeOf\(composer, capture\.ref\)/,
-      'the fallback re-selects the reference, so that key press really removes it',
+      /const name = path\.split\('\/'\)/,
+      'the chip derives the basename, never the path',
     )
+    assert.match(
+      body,
+      /label: `\$\{name\} · \$\{chars\} 字符`/,
+      'and displays basename + frozen size',
+    )
+    const payload = body.slice(body.indexOf('return {'))
+    // `ref` must be the BARE mention: openReference derives the path from it
+    // (`ref.slice(2, -1)` for the quoted form), so a trailing size would be read as
+    // part of the path and the preview would open nothing. The size rides in `label`
+    // only — which is exactly why this check is scoped to the two mention fields
+    // instead of the whole payload (the label is SUPPOSED to carry 字符).
+    assert.match(payload, /ref: mention,/, 'ref is the bare mention, shared with the model text')
+    assert.match(payload, /clipboardText: mention,/, 'and so is the clipboard/persistence form')
+    const mentionFields = payload
+      .split('\n')
+      .filter((line) => /^\s*(ref|clipboardText):/u.test(line))
+      .join('\n')
+    assert.doesNotMatch(
+      mentionFields,
+      /字符/,
+      'the count must not ride inside ref/clipboardText — openReference would read it as part of the path',
+    )
+  })
+
+  test('the atomic chip is probed, never assumed (a missing serializer blocks sending)', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+    const start = src.indexOf('async function insertReferenceChip')
+    assert.ok(start >= 0, 'insertReferenceChip must exist')
+    const fn = src.slice(start, src.indexOf('let slotSessionId = null', start))
+    // A chip whose source has no registered serializer makes the message
+    // UNSENDABLE ("no serializer for reference source") — strictly worse than a
+    // plain-text reference. So the registry the SUBMIT path reads is asked first,
+    // and the whole attempt is wrapped so nothing escapes to the save handler's
+    // catch (which would re-insert the raw 60 KB).
+    assert.match(
+      fn,
+      /serializeReference\?\.\('reference'/,
+      'the submit-path serializer is the probe',
+    )
+    assert.match(fn, /typeof modelText !== 'string'/, 'a non-answer refuses the chip path')
+    assert.match(fn, /try \{/, 'a refused or throwing facade must not escape')
+    assert.match(fn, /return false/, 'and it answers false so the caller keeps the text path')
+    // The capability walk lives one function up (the complexity gate moved it there),
+    // and it checks the session PAIRING first: actions latched for another session
+    // must never be able to address this one's composer.
+    const guardStart = src.indexOf('function composerInsertion')
+    assert.ok(guardStart >= 0, 'composerInsertion must exist')
+    const guard = src.slice(guardStart, start)
+    assert.match(
+      guard,
+      /slotInput\.sessionId !== sessionId/,
+      'a latch from another session refuses',
+    )
+    assert.match(
+      guard,
+      /return \{ input, scope, actions: slotInput\.actions \}/,
+      'and all three parts ride together',
+    )
+  })
+
+  test('the reference is a whitespace-led dsh reference token (the chip contract)', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+    // The chip is not ours to draw: `projectUserText` in ui-primitives scans settled
+    // user text for `(^|\s)(/[\w-]+(?=\s|$)|@"[^"\n]+"|@[^\s]+)` and turns a hit into
+    // a clickable file chip whose click opens the official sidebar preview (the
+    // alternation was read out of dsh 0.1.7-rc.2 AND out of the desktop 0.2.x
+    // bundle in app.asar — both spell it identically). So two properties of the
+    // returned string are load-bearing, and both are easy to lose in a "tidy-up":
+    //   1. the LEADING SPACE — without it a paste dropped straight after a word has
+    //      no `(^|\s)` to bind to and stays dead text in the transcript;
+    //   2. the QUOTED path — the `@"…"` branch is the one that survives the
+    //      trailing-punctuation strip applied to unquoted labels.
+    assert.match(
+      src,
+      /return ` @"\$\{path\}" \(/,
+      'the reference must lead with a space and quote the path — that is what the scan matches',
+    )
+    // The count rides OUTSIDE the token so the quoted path cannot swallow it; its
+    // unit (UTF-16 code units) is frozen and documented in README.
+    assert.match(src, /\(\$\{chars\} 字符\)`/, 'the frozen char count stays as trailing text')
   })
 })
 
@@ -782,14 +944,15 @@ describe('review batch A/B (2026-09-12) — release pipeline, wire cap, client h
     )
   })
 
-  // A4 — a capture belongs to ONE session: its bar and its [查看] affordance
-  // must never appear on top of another session's composer.
-  test('the capture bar is bound to the session that produced the paste', () => {
+  // A4 — the insertion path belongs to ONE session: a latch taken from the previous
+  // session's composer must never be able to edit the one on screen (composerInsertion
+  // refuses it, and the paste then falls back to the text reference).
+  test('the paste path is bound to the session that owns the composer', () => {
     const src = readClient()
     assert.match(
       src,
-      /capture\.sessionId === currentSessionId\(\)/,
-      'render and refresh must compare the capture session against the live one',
+      /slotInput\.sessionId !== sessionId/,
+      'the latched input actions are refused for any other session',
     )
     assert.match(
       src,
@@ -925,30 +1088,7 @@ describe('review batch C (2026-09-12) — frozen chars unit, absolute path stays
   })
 })
 
-describe('review batch D (2026-09-13) — the sidebar receives a path it can write', () => {
-  test('D: [查看] hands better-sidebar the absolute spelling, with a relative fallback', () => {
-    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
-    const start = src.indexOf('function openCapture')
-    assert.ok(start >= 0, 'openCapture must exist')
-    const body = src.slice(start, src.indexOf('const BAR_CSS', start))
-    assert.match(
-      body,
-      /capture\.absolutePath \?\? capture\.path/,
-      'the sidebar file API refuses relative paths — prefer the absolute one it can write',
-    )
-  })
-
-  test('D: the capture carries the absolute path the RPC result returned', () => {
-    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
-    assert.match(
-      src,
-      /capture: \{[\s\S]{0,160}?absolutePath: result\.absolutePath/,
-      'the capture snapshot must keep the absolute path for the [查看] call',
-    )
-  })
-})
-
-describe('0.1.5-① — the bar says so when no sidebar is installed', () => {
+describe('0.1.5-① — the hint says so when no sidebar is installed', () => {
   const readClient = () => readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
   const count = (src, re) => (src.match(re) ?? []).length
   const from = (src, marker, span = 900) => {
@@ -962,11 +1102,11 @@ describe('0.1.5-① — the bar says so when no sidebar is installed', () => {
     assert.equal(
       count(src, /没装 dsh-better-sidebar/g),
       1,
-      'the hint copy must appear exactly once (built once, reused by the bar)',
+      'the hint copy must appear exactly once (one source, rendered by the hint slot)',
     )
   })
 
-  test('showing the hint once is remembered, and a throwing localStorage cannot break the bar', () => {
+  test('showing the hint once is remembered, and a throwing localStorage cannot break the hint', () => {
     const src = readClient()
     assert.equal(
       count(src, /'dsh-auto-paste:sidebar-hint'/g),
@@ -1222,11 +1362,22 @@ describe('large pastes survive dsh 0.1.7 dropping list.current (2026-09-29)', ()
     assert.match(fn, /return slotSessionId/, 'and the 0.1.7 slot identity is the fallback')
   })
 
-  test('the capture bar latches the identity the slot rendered it with', () => {
-    const bar = from(readClient(), 'function CaptureBar(props)', 700)
+  test('the hint latches the identity the slot rendered it with', () => {
+    const bar = from(readClient(), 'function SidebarHint(props)', 1400)
     assert.match(bar, /props\.sessionId/, 'SessionStandardProps.sessionId is the 0.1.7 source')
     assert.match(bar, /slotSessionId = String\(offeredSession\)/, 'latched for the paste path')
     assert.match(bar, /React\.useEffect/, 'in an effect, so render stays side-effect free')
+    // The chip path needs the SAME props object for a second value: `inputActions`
+    // carries `captureInsertion()`, the only sanctioned source of the revision-
+    // guarded span `insertReference` CAS-checks. It is latched as a PAIR with the
+    // session so a switch cannot leave the old composer's actions addressable by
+    // the new session's paste.
+    assert.match(bar, /props\.inputActions/, 'SessionStandardProps.inputActions is the span source')
+    assert.match(
+      bar,
+      /sessionId: slotSessionId, actions: offeredActions/,
+      'identity and actions are latched together, never independently',
+    )
   })
 })
 
