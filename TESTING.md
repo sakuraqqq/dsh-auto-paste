@@ -30,7 +30,7 @@
 
 ### 阶段 C：独立 profile 实测（能做则做）
 1. `dsh plugin --profile autopaste-test add file:<插件目录>` → 装成功
-2. 启动 `dsh --profile autopaste-test`，在输入框粘贴 >500 字符文本 → 应自动出现 `[已保存大段粘贴为附件: pastes/....txt]`
+2. 启动 `dsh --profile autopaste-test`，在输入框粘贴 >500 字符文本 → 输入框里应出现**原子卡片**（`📄 <时间戳>.txt · N 字符`，无路径）；按一次 Backspace 应整张删掉；重新粘贴后点卡片应在右侧栏打开全文；发送后消息里应出现同一张可点卡片
 3. 检查工作区 `pastes/` 下有对应文件、内容一致
 4. 测试 `save_paste` 工具路径（若有条件）
 （若无 GUI 环境，跳过本阶段，注明"未实测 GUI"）

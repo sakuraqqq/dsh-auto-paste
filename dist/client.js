@@ -42,26 +42,27 @@ window.__ModuleLoader__.load({
         // The connection the Settings row writes through. Captured in apply() because
         // the settings section renders the row with no props of its own.
         let connectionRef = null;
-        // The sessions runtime, for the same reason: the capture bar renders OUTSIDE
-        // apply()'s closure and must know which session is on screen right now.
+        // The sessions runtime: the paste path resolves the owning session, and the
+        // slot component latches the identity it was rendered for.
         let sessionsRef = null;
-        // betterSidebar (OPTIONAL): the sidebar's own file API. Absent when that plugin
-        // is not installed — the bar then offers removal only, never a dead button.
-        let betterSidebar = null;
-        let betterSidebarCanOpen = false;
+        // betterSidebar (OPTIONAL) is observed for PRESENCE only — see adoptBetterSidebar.
+        // A live reference is deliberately NOT kept: this plugin no longer calls that
+        // plugin's file API (a chip's click is routed by dsh itself, and better-sidebar
+        // claims the address when it is installed), so a stored service would be
+        // write-only — which the linter caught when the pill went away.
+        //
         // Latch, set the first time a REAL service arrives and never cleared. The inject
-        // callback's dispose runs adopt(null) whenever better-sidebar reloads or unloads,
-        // so "absent right now" cannot tell "never installed" from "reloading" — the
-        // one-shot hint below must key off THIS, never off the live value alone.
+        // callback runs with null whenever better-sidebar reloads or unloads, so "absent
+        // right now" cannot tell "never installed" from "reloading" — the one-shot hint
+        // and the settings row must key off THIS.
         let betterSidebarEverAdopted = false;
-        // The one-shot degradation hint: D1 semantics, i.e. showing it once counts as
-        // seen, so the bar never nags twice. The General-settings row (below) stays as
-        // the place to look the situation up later, which is why silencing the hint
-        // costs the user nothing.
+        // The one-shot sidebar hint: D1 semantics, i.e. showing it once counts as seen,
+        // so it never nags twice. The General-settings row (below) stays as the place to
+        // look the situation up later, which is why silencing the hint costs nothing.
         const SIDEBAR_HINT_KEY = 'dsh-auto-paste:sidebar-hint';
         // null = not read yet, so a denied storage is probed exactly once per page.
         let sidebarHintSeen = null;
-        /** Has the one-shot hint been shown already? Cached — the bar re-renders often. */
+        /** Has the one-shot hint been shown already? Cached — the hint re-renders often. */
         function readSidebarHint() {
             if (sidebarHintSeen === null) {
                 try {
@@ -88,23 +89,29 @@ window.__ModuleLoader__.load({
                 console.warn(`[${PACKAGE}] could not persist the sidebar hint state:`, error);
             }
         }
-        // The most recent capture THIS page made, plus whether its reference is still
-        // in the composer. One snapshot object, replaced only when it changes (a fresh
-        // object per render would make useSyncExternalStore loop forever).
-        let captureState = { capture: null, present: false };
-        const captureListeners = new Set();
-        const publishCapture = (next) => {
-            captureState = next;
-            for (const listener of captureListeners)
+        // What the sidebar surfaces re-render on: whether the optional integration was
+        // ever adopted, and whether the one-shot hint is currently wanted. ONE snapshot
+        // object, replaced only when a value really changes (a fresh object per render
+        // would make useSyncExternalStore loop forever).
+        let sidebarState = { adopted: false, hintWanted: false };
+        const sidebarListeners = new Set();
+        const publishSidebar = (next) => {
+            const merged = { ...sidebarState, ...next };
+            if (merged.adopted === sidebarState.adopted &&
+                merged.hintWanted === sidebarState.hintWanted) {
+                return;
+            }
+            sidebarState = merged;
+            for (const listener of sidebarListeners)
                 listener();
         };
-        const subscribeCapture = (listener) => {
-            captureListeners.add(listener);
+        const subscribeSidebar = (listener) => {
+            sidebarListeners.add(listener);
             return () => {
-                captureListeners.delete(listener);
+                sidebarListeners.delete(listener);
             };
         };
-        const readCapture = () => captureState;
+        const readSidebar = () => sidebarState;
         const name = 'dsh-auto-paste';
         // Wait until the connection carrier and the sessions runtime are live.
         const inject = ['sessions', 'connection'];
@@ -302,70 +309,168 @@ window.__ModuleLoader__.load({
             }
             return inserted === true;
         }
-        // ---- capture bar (composer dock) ---------------------------------------
+        // ---- saved-paste reference: atomic chip, else the text token ---------------
         /**
          * The reference line we drop into the composer. ONE source: the removal path
          * searches for exactly this string, so a second copy anywhere would silently
          * break the bar button that depends on it.
          *
-         * `chars` arrives from the host and is a count of UTF-16 code units
+         * FALLBACK FORM. The preferred insertion is the composer's own ATOMIC chip
+         * (see insertReferenceChip) — filename only, one Backspace to remove, click to
+         * preview. This text token is what a deployment without that facade gets, or
+         * what a refused edit falls back to; it is plain draft text in the composer
+         * (the scan below runs on the COMPOSER's own rules, which do not match a
+         * quoted token) and becomes the clickable chip once SENT.
+         *
+         * The shape is dsh's OWN reference grammar — a quoted `@"<path>"` token. The
+         * transcript renderer (`projectUserText`, ui-primitives) scans user text for
+         * it and turns it into a clickable file chip; the click opens the official
+         * sidebar preview, which falls back to plain text for any suffix no other
+         * viewer claims (`.txt` included) — so the saved paste is one click away with
+         * no extra plugin. The model still reads the file itself: dsh-file-reference
+         * documents that the grammar adds no request tokens.
+         *
+         * The LEADING SPACE is load-bearing, not cosmetic. That scan accepts a token
+         * only at the draft start or after whitespace (`(^|\s)`), so a paste dropped
+         * straight after a word would stay dead text. With the space both spellings
+         * work: kept, it is the whitespace the scan wants; trimmed, the token reaches
+         * position 0 and matches `^` instead.
+         *
+         * The count stays OUTSIDE the token: it must not be swallowed by the quoted
+         * path, and it keeps the number on screen now that the reference carries no
+         * prose of its own. `chars` arrives from the host and counts UTF-16 code units
          * (`String.prototype.length`) — an emoji counts as 2, a CJK char as 1. The
          * unit is frozen: references already sitting in old messages show numbers
          * computed this way, so re-deriving them differently would restate them.
+         *
+         * Known cosmetic limit of THIS form, measured rather than guessed: the
+         * COMPOSER's own decoration scan (`FOLDER_REF_RE`, syntax-only, no lexicon
+         * gate) claims the `@"<dir>/` prefix as a folder token, so a draft built from
+         * this string tints `@"pastes/` and leaves the remainder plain. The chip path
+         * (insertReferenceChip) has no such artefact — it inserts a node, not text.
          */
         function pasteReference(path, chars) {
-            return `[已保存大段粘贴为附件: ${path} (${chars} 字符)]`;
-        }
-        /** The live composer editable, or null. */
-        function composerElement() {
-            return document.querySelector('[data-input-scroll] [contenteditable="true"]');
+            return ` @"${path}" (${chars} 字符)`;
         }
         /**
-         * Range covering the first exact occurrence of `text` inside `root`, or null
-         * when it is not there (the user edited or sent it away). Walks text nodes so
-         * a reference the editor split across nodes still matches — textContent is
-         * their concatenation, but a Range needs the two boundary nodes.
+         * The chip payload for one saved paste.
+         *
+         * `ref` is the SAME mention the text form carries, and that is deliberate: the
+         * reference source serializes a chip by returning `ref` verbatim
+         * (`codec.serialize` in dsh-client-ui-reference), so the model receives exactly
+         * the string it received before — a path it reads itself, never the 60 KB of
+         * text. `label` is what the chip DISPLAYS: the basename, exactly like every other
+         * dsh file chip, plus the frozen size — a card that showed only a filename would
+         * hide how big the paste was, and the size cannot ride inside `ref`
+         * (`openReference` derives the PATH from it; see insertReferenceChip).
+         *
+         * `source: 'reference'` names the `@file`/`@session` source. It must be that
+         * literal: it is the serializer routing key (see insertReferenceChip).
          */
-        function textRangeOf(root, text) {
-            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-            const nodes = [];
-            let all = '';
-            for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-                nodes.push({ node, start: all.length });
-                all += node.data;
-            }
-            const at = all.indexOf(text);
-            if (at < 0)
-                return null;
-            const locate = (offset) => {
-                for (let index = nodes.length - 1; index >= 0; index -= 1) {
-                    if (offset >= nodes[index].start) {
-                        return { node: nodes[index].node, offset: offset - nodes[index].start };
-                    }
-                }
-                return null;
+        function referenceChipOf(path, chars) {
+            const mention = `@"${path}"`;
+            const name = path.split('/').filter(Boolean).at(-1) ?? path;
+            return {
+                source: 'reference',
+                ref: mention,
+                label: `${name} · ${chars} 字符`,
+                appearance: 'file',
+                clipboardText: mention,
             };
-            const from = locate(at);
-            const to = locate(at + text.length);
-            if (from === null || to === null)
-                return null;
-            const range = document.createRange();
-            range.setStart(from.node, from.offset);
-            range.setEnd(to.node, to.offset);
-            return range;
         }
         /**
-         * The session identity the bar was RENDERED for, latched from the slot props.
+         * Resolve the composer's insertion parts for one session, or null when any of
+         * them is missing.
+         *
+         * Extracted rather than inlined because of the complexity gate: five sequential
+         * guards inside one function read as cyc 16 to ESLint (optional chaining counts
+         * there), so the capability walk lives here and the editing attempt stays flat.
+         * The session PAIRING is checked first: actions latched from another session can
+         * never address this one's composer.
+         */
+        function composerInsertion(ctx, sessionId) {
+            if (slotInput === null)
+                return null;
+            if (slotInput.sessionId !== sessionId)
+                return null;
+            const input = ctx.get('conversation')?.input;
+            if (!input)
+                return null;
+            const scope = sessionsRef?.scope?.(sessionId);
+            if (!scope)
+                return null;
+            return { input, scope, actions: slotInput.actions };
+        }
+        /**
+         * Insert the saved paste as the composer's OWN atomic reference chip, so the
+         * draft reads like dsh's own attachments instead of a path with a pill over it.
+         *
+         * What the chip buys, all of it dsh's own behaviour rather than ours
+         * (chip-node.tsx + ui-reference): the node is a Lexical DECORATOR, so arrows
+         * step over it and Backspace/Delete remove it WHOLE (`isKeyboardSelectable()`
+         * is false on purpose); it renders `label`, so the composer shows the filename;
+         * and a click routes to the source's `openReference`, which previews the
+         * current file contents in the right Sidebar.
+         *
+         * Every piece is PROBED, never assumed, and the serializer probe is the
+         * load-bearing one: a chip whose source has no registered serializer makes the
+         * message unsendable ("no serializer for reference source"), which is far worse
+         * than a plain-text reference. Missing facade, stale session, refused edit or a
+         * throw all answer false, and the caller keeps the text path.
+         *
+         * @param ctx - plugin context, for the service lookups below.
+         * @param sessionId - the session that owns the composer on screen.
+         * @param path - workspace-relative path of the saved paste.
+         * @param chars - UTF-16 length of the saved text, for the chip's size suffix.
+         * @returns whether the chip really landed in the draft.
+         */
+        async function insertReferenceChip(ctx, sessionId, path, chars) {
+            const parts = composerInsertion(ctx, sessionId);
+            if (parts === null)
+                return false;
+            const chip = referenceChipOf(path, chars);
+            try {
+                // The submit path reads the same registry this asks, so a string answer is
+                // the exact capability proof that sending will not throw later.
+                const controller = ctx.get('inputTriggers')?.sessionOf?.(parts.scope);
+                const signal = new AbortController().signal;
+                const modelText = await controller?.serializeReference?.('reference', chip.ref, signal);
+                if (typeof modelText !== 'string')
+                    return false;
+                const span = parts.actions.captureInsertion();
+                return parts.input.for(parts.scope).insertReference(chip, span) === true;
+            }
+            catch (error) {
+                console.warn(`[${PACKAGE}] atomic reference chip unavailable, using the text reference instead:`, error);
+                return false;
+            }
+        }
+        /**
+         * The session identity the hint was RENDERED for, latched from the slot props.
          *
          * Two shapes, measured against both lines: dsh 0.1.5 rode the selection on the
          * list snapshot (`list.getSnapshot().current`); 0.1.7 moved the selection out of
          * ClientSessions and dropped that field entirely, but every `scope: 'session'`
          * slot component is handed the Session identity as a prop instead
-         * (`SessionStandardProps.sessionId`). The bar lives in exactly such a slot
+         * (`SessionStandardProps.sessionId`). The hint lives in exactly such a slot
          * (`conversation.input.overlay`, scope 'session') and is rendered for the
-         * composer on screen — so what it was rendered with IS the session on screen.
+         * composer on screen; the paste path resolves the same identity through
+         * `currentSessionId()` below.
          */
         let slotSessionId = null;
+        /**
+         * The same latch for the Session's PUBLIC INPUT ACTIONS
+         * (`SessionStandardProps.inputActions`), paired with the session they were
+         * rendered for.
+         *
+         * `captureInsertion()` is the only sanctioned source of the revision-guarded
+         * `TokenSpan` that `insertReference` CAS-checks — the caret lives in the
+         * shell's Lexical editor, so a plugin cannot compute that span from outside.
+         * The PAIRING is what keeps a session switch honest: a latch from the previous
+         * session answers nothing for the new one (see insertReferenceChip), and the
+         * paste falls back to the text reference.
+         */
+        let slotInput = null;
         /** The agent session on screen right now, or null when there is none. */
         function currentSessionId() {
             const current = sessionsRef?.list?.getSnapshot?.().current;
@@ -374,146 +479,14 @@ window.__ModuleLoader__.load({
             // 0.1.7 path: no `current` on the snapshot any more — use the slot identity.
             return slotSessionId;
         }
-        /**
-         * A capture belongs to the session that MADE it. Sessions are switched
-         * constantly, and a bar left over from the previous one would sit on top of
-         * another session's composer — its [查看] button even opening that other
-         * session's file. So every read of the capture is filtered through this.
-         */
-        function captureBelongsToCurrentSession(capture) {
-            return capture !== null && capture.sessionId === currentSessionId();
-        }
-        /**
-         * Re-derive whether the reference is still in the composer. The bar exists
-         * only while it is: once the user edits it away or sends the message, there is
-         * nothing left to remove and the bar disappears by itself. A capture from a
-         * session we have since left is dropped outright.
-         */
-        function refreshCapture() {
-            const { capture } = captureState;
-            if (capture === null)
-                return;
-            if (!captureBelongsToCurrentSession(capture)) {
-                publishCapture({ capture: null, present: false });
-                return;
-            }
-            const root = composerElement();
-            const present = root !== null && root.textContent.includes(capture.ref);
-            if (present !== captureState.present)
-                publishCapture({ capture, present });
-        }
-        /** Put the DOM selection on `range` (the editor's own selection follows it). */
-        function selectRange(root, range) {
-            const selection = window.getSelection();
-            if (selection === null)
-                return false;
-            root.focus();
-            selection.removeAllRanges();
-            selection.addRange(range);
-            return true;
-        }
-        /**
-         * Hand the deletion to the editor instead of performing it behind its back.
-         *
-         * Measured 2026-09-12 (dsh 0.1.5-rc.1 + Chrome, instrumented composer):
-         * `document.execCommand('delete')` empties the DOM text but fires only an
-         * `input` event. Lexical adopts edits through `beforeinput` alone, so with an
-         * unchanged model it re-rendered the reference straight back (textLen
-         * 53 → 0 → 53 inside that one command). The shape it does consume is a
-         * `beforeinput` carrying the target range: its handler reads
-         * `getTargetRanges()`, applies that DOM range and removes the text — probe
-         * verified (the whole reference went at once, and it stayed gone).
-         *
-         * Returns whether the editor acknowledged the edit: it does so by calling
-         * `preventDefault()`, which makes `dispatchEvent` return false.
-         */
-        function requestRangeDeletion(root, range) {
-            if (typeof InputEvent !== 'function')
-                return false;
-            try {
-                const event = new InputEvent('beforeinput', {
-                    bubbles: true,
-                    cancelable: true,
-                    inputType: 'deleteContentBackward',
-                });
-                // InputEvent has no constructor option for target ranges — the editor
-                // reads this method, so supply it for this one event.
-                Object.defineProperty(event, 'getTargetRanges', { value: () => [range] });
-                return root.dispatchEvent(event) === false;
-            }
-            catch (error) {
-                console.warn(`[${PACKAGE}] could not hand the deletion to the editor:`, error);
-                return false;
-            }
-        }
-        /** Drop the reference from the composer. The file stays on disk. */
-        function removeCapture() {
-            const { capture } = captureState;
-            const root = composerElement();
-            if (capture === null || root === null)
-                return;
-            const range = textRangeOf(root, capture.ref);
-            if (range === null) {
-                publishCapture({ capture: null, present: false });
-                return;
-            }
-            if (!selectRange(root, range))
-                return;
-            requestRangeDeletion(root, range);
-            // The editor re-renders on its own schedule — right now the DOM still shows
-            // the reference — so the verdict is read one task later instead of guessed
-            // synchronously. On failure the reference is left selected: a real Backspace
-            // travels the full editing pipeline, so the way out that we name always works.
-            window.setTimeout(() => {
-                const composer = composerElement();
-                if (composer !== null && !composer.textContent.includes(capture.ref)) {
-                    publishCapture({ capture: null, present: false });
-                    return;
-                }
-                const retry = composer === null ? null : textRangeOf(composer, capture.ref);
-                if (retry !== null)
-                    selectRange(composer, retry);
-                showToast('没能移除那行引用——已替你选中，按 Backspace 删除（文件仍保留在 pastes/）', 'error');
-            }, 0);
-        }
-        /** Show the captured text in the sidebar editor (better-sidebar owns the view). */
-        function openCapture() {
-            const { capture } = captureState;
-            if (!captureBelongsToCurrentSession(capture) || betterSidebar === null)
-                return;
-            // The sidebar's file API refuses relative paths (its host answers 400
-            // "… is not an absolute path"), which would leave the opened file readable
-            // but never savable. The RPC result carries the absolute path for exactly this
-            // call; the workspace-relative spelling stays as a fallback.
-            betterSidebar.openFile({ sessionId: capture.sessionId }, capture.absolutePath ?? capture.path);
-        }
-        const BAR_CSS = [
-            // ONE row: the pill and its annotation sit side by side. A stacked (column)
-            // layout was measured to push the hint up onto the empty-session title
-            // (2026-09-16, third visual pass) — there is no free vertical room above the
-            // composer, while there is plenty of horizontal room beside the pill.
-            '.dsh-auto-paste-stack{position:absolute;left:50%;transform:translateX(-50%);bottom:40px;display:flex;',
-            'align-items:center;gap:10px;max-width:min(100%,var(--dsh-composer-card-max-width,640px));',
-            'pointer-events:auto}',
-            '.dsh-auto-paste-bar{display:flex;align-items:center;gap:7px;max-width:100%;',
-            'padding:3px 10px;border-radius:999px;font-size:12px;line-height:18px;',
-            'border:.5px solid var(--dsw-alias-border-l3,rgba(127,127,127,.35));',
-            'background:var(--dsw-alias-bg-layer-1,rgba(28,28,30,.94));',
-            'color:var(--dsw-alias-label-primary,#f5f5f5);box-shadow:0 6px 24px rgba(0,0,0,.18)}',
-            '.dsh-auto-paste-bar-name{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;',
-            'text-overflow:ellipsis;white-space:nowrap}',
-            '.dsh-auto-paste-bar-meta{opacity:.7;flex:none}',
-            '.dsh-auto-paste-bar-spacer{flex:1}',
-            '.dsh-auto-paste-bar-button{flex:none;padding:1px 8px;border:0;border-radius:999px;font:inherit;cursor:pointer;',
-            'background:var(--dsw-alias-bg-layer-1,rgba(127,127,127,.18));color:inherit}',
-            '.dsh-auto-paste-bar-button:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.3))}',
-            // The one-shot hint is an ANNOTATION to the pill, not a third control: no
-            // border, no shadow, smaller and dimmer than the pill. It KEEPS a faint plate
-            // though — bare text was measured to sit unreadably on top of the empty-session
-            // title (2026-09-16, second visual pass). One line only: it now wraps never,
-            // and ellipsizes instead.
-            '.dsh-auto-paste-hint{display:flex;align-items:center;gap:6px;padding:2px 8px;border-radius:8px;max-width:100%;',
-            'font-size:11px;line-height:16px;white-space:nowrap;',
+        // The one-shot sidebar annotation — everything the pill left behind. No border,
+        // no shadow, one line that never wraps (measured 2026-09-16: bare text sat
+        // unreadably on the empty-session title, and a wrapping line squeezed the pill).
+        const HINT_CSS = [
+            '.dsh-auto-paste-hint{position:absolute;left:50%;transform:translateX(-50%);bottom:40px;display:flex;',
+            'align-items:center;gap:6px;padding:2px 8px;border-radius:8px;',
+            'max-width:min(100%,var(--dsh-composer-card-max-width,640px));',
+            'font-size:11px;line-height:16px;white-space:nowrap;pointer-events:auto;',
             'background:var(--dsw-alias-bg-layer-1,rgba(28,28,30,.72));',
             'color:var(--dsw-alias-label-primary,#f5f5f5);opacity:.85}',
             '.dsh-auto-paste-hint-text{min-width:0;overflow:hidden;text-overflow:ellipsis}',
@@ -521,85 +494,73 @@ window.__ModuleLoader__.load({
             'cursor:pointer;background:transparent;color:inherit;opacity:.7}',
             '.dsh-auto-paste-hint-close:hover{opacity:1}',
         ].join('');
-        // The one-shot copy. Kept to ONE short line on purpose: it renders BESIDE the pill
-        // (see BAR_CSS), and a longer version was measured to squeeze the pill's filename
-        // (2026-09-16). It names the plugin rather than an install command: the upstream
-        // recipe is three profile-bound commands, which a pill cannot carry without
-        // turning into noise — whoever wants it finds it by name.
-        const SIDEBAR_HINT_TEXT = '没装 dsh-better-sidebar（装了能在侧栏直接编辑）';
+        // The one-shot copy. ONE short line on purpose. It names the plugin rather than an
+        // install command: the upstream recipe is three profile-bound commands, which an
+        // annotation cannot carry without turning into noise.
+        const SIDEBAR_HINT_TEXT = '没装 dsh-better-sidebar（官方侧栏能看，装了能直接编辑）';
         /**
-         * Should the one-shot "no sidebar" hint be offered? Extracted from the bar rather
-         * than inlined: every `&&` counts toward the cyclomatic gate in tools/metrics.mjs.
-         * Only a paste that is actually on screen can trigger it, and only while the
-         * integration was NEVER there (see betterSidebarEverAdopted).
+         * Should the one-shot "no sidebar" hint be offered? Extracted rather than inlined:
+         * every `&&` counts toward the cyclomatic gate in tools/metrics.mjs. It fires for
+         * a paste that landed as an atomic chip, and only while the integration was NEVER
+         * there (see betterSidebarEverAdopted).
          */
-        function shouldOfferSidebarHint(onScreen) {
-            if (!onScreen)
-                return false;
+        function shouldOfferSidebarHint() {
             if (betterSidebarEverAdopted)
                 return false;
             return !readSidebarHint();
         }
-        /**
-         * One action button of the bar. Its two call sites were the same shape spelled out
-         * twice — `button` + `type: 'button'` + the bar's button class + an optional `title` —
-         * which let any of those drift apart between them. Nothing else uses it: the hint's
-         * close button carries a different class and sits outside the actions array.
-         */
-        function barButton({ key, label, title, onClick }) {
-            return React.createElement('button', { key, type: 'button', className: 'dsh-auto-paste-bar-button', title, onClick }, label);
+        /** Raise the one-shot hint. The slot marks it seen once it actually renders. */
+        function offerSidebarHint() {
+            if (!shouldOfferSidebarHint())
+                return;
+            publishSidebar({ hintWanted: true });
         }
-        /** The ambient bar over the composer: which paste, how big, view, remove. */
-        function CaptureBar(props) {
-            const { capture, present } = React.useSyncExternalStore(subscribeCapture, readCapture);
-            const [hintOpen, setHintOpen] = React.useState(false);
+        /**
+         * The composer's one-shot annotation — the last thing left of the pill. It no
+         * longer describes a control: the CHIP owns both verbs now (Backspace removes it
+         * whole, clicking previews the file), so this only says what is missing.
+         */
+        function SidebarHint(props) {
+            const { hintWanted } = React.useSyncExternalStore(subscribeSidebar, readSidebar);
+            const [open, setOpen] = React.useState(false);
             // dsh 0.1.7 delivers the Session identity through these props; latch it for the
             // paste path (see slotSessionId). An effect, not a render-time write: render
             // stays free of side effects, and the latch is idempotent.
             const offeredSession = props === undefined || props === null ? undefined : props.sessionId;
+            const offeredActions = props === undefined || props === null ? undefined : props.inputActions;
             React.useEffect(() => {
                 if (offeredSession === undefined || offeredSession === null)
                     return;
                 slotSessionId = String(offeredSession);
-            }, [offeredSession]);
-            const onScreen = capture !== null && present === true && captureBelongsToCurrentSession(capture);
-            const hintWanted = shouldOfferSidebarHint(onScreen);
+                // Paired latch: the actions belong to the session they were rendered for,
+                // so a session switch cannot leave them addressable by the new one.
+                slotInput =
+                    offeredActions === undefined || offeredActions === null
+                        ? null
+                        : { sessionId: slotSessionId, actions: offeredActions };
+            }, [offeredSession, offeredActions]);
             // D1: showing it counts as seen. Latched inside an effect, never during render —
             // a render-time write is a side effect and would run twice under StrictMode.
             React.useEffect(() => {
                 if (!hintWanted)
                     return;
                 markSidebarHintSeen();
-                setHintOpen(true);
+                setOpen(true);
             }, [hintWanted]);
-            if (!onScreen)
+            if (!hintWanted || !open)
                 return null;
-            const actions = [];
-            if (betterSidebarCanOpen) {
-                actions.push(barButton({ key: 'open', label: '查看', onClick: openCapture }));
-            }
-            actions.push(barButton({
-                key: 'drop',
-                label: '×',
-                title: '把这行引用从输入框移除（文件保留在 pastes/）',
-                onClick: removeCapture,
-            }));
-            const hint = hintOpen
-                ? React.createElement('div', { className: 'dsh-auto-paste-hint' }, React.createElement('span', { className: 'dsh-auto-paste-hint-text' }, SIDEBAR_HINT_TEXT), React.createElement('button', {
-                    type: 'button',
-                    className: 'dsh-auto-paste-hint-close',
-                    title: '知道了，不再提示',
-                    onClick: () => setHintOpen(false),
-                }, '×'))
-                : null;
-            const bar = React.createElement('div', { className: 'dsh-auto-paste-bar' }, React.createElement('span', { className: 'dsh-auto-paste-bar-name' }, capture.path), React.createElement('span', { className: 'dsh-auto-paste-bar-meta' }, `${capture.chars} 字符`), React.createElement('span', { className: 'dsh-auto-paste-bar-spacer' }), actions);
-            return React.createElement('div', { className: 'dsh-auto-paste-stack' }, bar, hint);
+            return React.createElement('div', { className: 'dsh-auto-paste-hint' }, React.createElement('span', { className: 'dsh-auto-paste-hint-text' }, SIDEBAR_HINT_TEXT), React.createElement('button', {
+                type: 'button',
+                className: 'dsh-auto-paste-hint-close',
+                title: '知道了，不再提示',
+                onClick: () => setOpen(false),
+            }, '×'));
         }
         /**
-         * Additive entry in the composer dock (an ambient row below the composer card,
-         * `replaceRisk` "none"). Returns false when the surface is unavailable.
+         * Additive entry in the composer overlay (an ambient annotation over the composer
+         * card, `replaceRisk` "none"). Returns false when the surface is unavailable.
          */
-        function mountCaptureBar(ctx) {
+        function mountSidebarHint(ctx) {
             if (React === null)
                 return false;
             const slots = ctx.get('slots');
@@ -607,7 +568,7 @@ window.__ModuleLoader__.load({
                 return false;
             ctx.effect(() => {
                 const style = document.createElement('style');
-                style.textContent = BAR_CSS;
+                style.textContent = HINT_CSS;
                 document.head.appendChild(style);
                 return () => style.remove();
             });
@@ -615,10 +576,10 @@ window.__ModuleLoader__.load({
                 name: 'conversation.input.overlay',
                 // A DISTINCT id: the toast lives in this same slot, and a list slot
                 // throws when a second entry reuses an id at the same priority.
-                id: `${PACKAGE}:capture`,
+                id: `${PACKAGE}:hint`,
                 order: 90,
-                label: 'dsh-auto-paste capture bar',
-            }, CaptureBar)));
+                label: 'dsh-auto-paste sidebar hint',
+            }, SidebarHint)));
             return true;
         }
         /**
@@ -783,12 +744,12 @@ window.__ModuleLoader__.load({
         }
         // The settings-row explainer copy, kept beside its row: this is where a user
         // lands after dismissing (or never noticing) the one-shot hint.
-        const SIDEBAR_ROW_TEXT = '未检测到 dsh-better-sidebar —— 装它后粘贴药丸会多一个「查看」，可在侧栏直接打开并编辑 pastes/ 文件；dsh 自带的文件面板只能浏览，不能改。';
+        const SIDEBAR_ROW_TEXT = '未检测到 dsh-better-sidebar —— 装它后点粘贴卡片会用它的编辑器打开并可直接编辑 pastes/ 文件；dsh 自带的侧栏只能浏览，不能改。';
         // The missing integration, explained where a user would go looking for it. It
         // disappears for good once better-sidebar is adopted — the same latch the hint
         // uses — and subscribes to the same snapshot so it reacts to the async arrival.
         function SettingsSidebarRow() {
-            React.useSyncExternalStore(subscribeCapture, readCapture);
+            React.useSyncExternalStore(subscribeSidebar, readSidebar);
             if (betterSidebarEverAdopted)
                 return null;
             return React.createElement('div', { className: 'dsh-auto-paste-row' }, React.createElement('div', { className: 'dsh-auto-paste-row-main' }, React.createElement('div', { className: 'dsh-auto-paste-row-label' }, '侧栏集成'), React.createElement('div', { className: 'dsh-auto-paste-row-hint' }, SIDEBAR_ROW_TEXT)));
@@ -827,24 +788,26 @@ window.__ModuleLoader__.load({
             return true;
         }
         /**
-         * Adopt the OPTIONAL betterSidebar service whenever it appears. A one-shot
+         * Note whether the OPTIONAL betterSidebar service is around. A one-shot
          * `ctx.get()` at activation is NOT enough: a service provided by a
          * later-activating plugin is simply not there yet (measured: it read as absent
-         * while that plugin's tabs were already registered in the slot tree). `features`
-         * is its documented capability gate — probe it, never assume the method exists.
+         * while that plugin's tabs were already registered in the slot tree).
+         *
+         * PRESENCE ONLY since the pill was removed: this plugin no longer calls that
+         * plugin's file API — a paste chip's click is routed by dsh itself, and
+         * better-sidebar claims the address when it is installed — so its `features`
+         * capability gate is no longer probed. What the flag drives is the one-shot hint
+         * and the General-settings row.
          */
         function adoptBetterSidebar(service) {
-            betterSidebar = service;
-            betterSidebarCanOpen =
-                service !== null && Array.isArray(service.features) && service.features.includes('openFile');
             // Latch on the REAL service only: the dispose path passes null on every reload,
             // and a null there must never look like "was never installed".
             if (service !== null)
                 betterSidebarEverAdopted = true;
-            console.log(`[${PACKAGE}] betterSidebar ${service === null ? 'gone' : `adopted (openFile=${betterSidebarCanOpen})`}`);
-            // A NEW snapshot object: the bar must re-render so the view action appears (or
-            // disappears) with the service, and useSyncExternalStore compares identity.
-            publishCapture({ capture: captureState.capture, present: captureState.present });
+            console.log(`[${PACKAGE}] betterSidebar ${service === null ? 'gone' : 'present'}`);
+            // The settings row must re-render so its status line appears (or disappears)
+            // with the service, and useSyncExternalStore compares snapshot identity.
+            publishSidebar({ adopted: betterSidebarEverAdopted });
         }
         function apply(ctx) {
             const sessions = ctx.sessions;
@@ -878,10 +841,10 @@ window.__ModuleLoader__.load({
             if (!mountSettingsRow(ctx)) {
                 console.warn(`[${PACKAGE}] settings row unavailable (react=${React !== null}) — minChars stays adjustable via cordis.patch.yml only`);
             }
-            if (!mountCaptureBar(ctx)) {
-                console.warn(`[${PACKAGE}] capture bar unavailable (react=${React !== null}) — pastes still save, the reference just cannot be removed from the bar`);
+            if (!mountSidebarHint(ctx)) {
+                console.warn(`[${PACKAGE}] sidebar hint unavailable (react=${React !== null}) — pastes still save; only the one-shot hint is skipped`);
             }
-            console.log(`[${PACKAGE}] capture bar ready — waiting for the optional betterSidebar service`);
+            console.log(`[${PACKAGE}] client paste listener ready — waiting for the optional betterSidebar service`);
             const onPaste = (event) => {
                 const target = event.target;
                 if (!isComposerTarget(target))
@@ -911,23 +874,24 @@ window.__ModuleLoader__.load({
                 event.preventDefault();
                 event.stopImmediatePropagation();
                 savePaste(connection, sessionId, text)
-                    .then((result) => {
+                    .then(async (result) => {
+                    // Preferred: the composer's own atomic chip — filename + size, one
+                    // Backspace to remove, click to preview. The chip owns both verbs, so no
+                    // pill is published any more; the only follow-up is the one-shot hint.
+                    // The helper never throws (it answers false), so the catch below stays
+                    // reserved for a genuine save failure.
+                    if (await insertReferenceChip(ctx, sessionId, result.path, result.chars)) {
+                        console.log(`[${PACKAGE}] saved paste (${result.chars} chars) -> ${result.path} as an atomic reference chip`);
+                        showToast(`已保存为 ${result.path}（${result.chars} 字符）`);
+                        offerSidebarHint();
+                        return;
+                    }
+                    // Fallback: plain draft text (older dsh lines, a busy composer, or a lost
+                    // span race). Same mention, so the model text is identical either way.
                     const ref = pasteReference(result.path, result.chars);
                     insertTextAtCaret(target, ref);
                     console.log(`[${PACKAGE}] saved paste (${result.chars} chars) -> ${result.path}`);
                     showToast(`已保存为 ${result.path}（${result.chars} 字符）`);
-                    // The bar mirrors this exact reference, so it lives exactly as long as
-                    // the text does in the composer (the input listener re-checks it).
-                    publishCapture({
-                        capture: {
-                            path: result.path,
-                            absolutePath: result.absolutePath,
-                            chars: result.chars,
-                            ref,
-                            sessionId,
-                        },
-                        present: true,
-                    });
                 })
                     .catch((error) => {
                     // Never lose user data: on failure insert the original text — and
@@ -941,11 +905,6 @@ window.__ModuleLoader__.load({
             };
             document.addEventListener('paste', onPaste, true);
             ctx.effect(() => () => document.removeEventListener('paste', onPaste, true));
-            // Keeps the bar honest: editing or deleting the reference away hides it, and
-            // sending the message (which clears the composer) hides it too.
-            const onComposerInput = () => refreshCapture();
-            document.addEventListener('input', onComposerInput, true);
-            ctx.effect(() => () => document.removeEventListener('input', onComposerInput, true));
             console.log(`[${PACKAGE}] client paste listener attached — threshold ${minChars} chars until the host's config arrives`);
         }
         return { name, inject, apply };
