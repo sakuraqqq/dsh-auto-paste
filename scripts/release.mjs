@@ -44,16 +44,18 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const PKG_NAME = 'dsh-auto-paste'
 const DRY = process.argv.includes('--dry-run')
 const FINISH = process.argv.includes('--finish')
+const TAG = process.argv.includes('--tag')
 
 // ── 参数解析 ─────────────────────────────────────────────
 const argv = process.argv.slice(2)
 const force = argv.includes('--force')
 const bump = argv.find((a) => !a.startsWith('--'))
-// --finish 不需要也不接受版本参数：它处理的是"已经发出去的那个版本"，而那个版本就在
-// package.json 里。把它做成位置参数只会让人写出 `--finish 0.1.5` 这种冗余形式，
-// 且位置参数还会被当成 bump 去算下一个版本号（第一版就是这么错的）。
-if (!bump && !FINISH) {
+// --finish / --tag 都不需要也不接受版本参数：它们处理的是"已经发出去的那个版本"，
+// 而那个版本就在 package.json 里。做成位置参数只会让人写出 `--finish 0.1.5` 这种冗余
+// 形式，且位置参数还会被当成 bump 去算下一个版本号（第一版就是这么错的）。
+if (!bump && !FINISH && !TAG) {
   console.error('用法: npm run release -- [patch|minor|major|<版本号>] [--force]')
+  console.error('      npm run release -- --tag       # 打 tag 之前的自查 + 给出命令（合并后跑）')
   console.error('      npm run release -- --finish    # 合并并推 tag 之后补发 GitHub Release')
   process.exit(1)
 }
@@ -82,9 +84,96 @@ function sh(cmd, { silent = false } = {}) {
   }
 }
 
+/** 跑一条 git 命令，只回退出码（不依赖 shell 的 or-兜底语法 —— Windows cmd.exe 不认）。 */
+function gitOk(args) {
+  try {
+    execSync(`git ${args}`, { cwd: ROOT, stdio: 'pipe', shell: true })
+    return true
+  } catch {
+    return false
+  }
+}
+
 const pkgPath = join(ROOT, 'package.json')
 const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
 const current = pkg.version
+
+// ── --tag: 打 tag 之前的守卫（2026-09-30 新增，因为这个坑已踩两次）─────
+// 为什么需要：0.1.5 与 0.1.6 两次都出现「tag 打在分支提交上」——tag 指向的提交里
+// package.json 还是上一个版本，发布工作流第一步就退出：
+//     tag=0.1.6  package.json=0.1.5   → exit 1
+// 只写提示文本拦不住（纪律：文本约束是装饰），所以做成**可执行的自查**：
+// 运行它必须真通过，才允许照它打印的命令去打 tag。
+if (TAG) {
+  log(`--tag  v${current} 的 tag 自查`)
+  const problems = []
+
+  // ① 必须在 main 上：tag 应打在已合并的提交上
+  const branch = sh('git rev-parse --abbrev-ref HEAD', { silent: true })
+  ok(`当前分支: ${branch}`)
+  if (branch !== 'main') {
+    problems.push(
+      `当前在 ${branch}，不是 main。tag 必须打在**已合并进 main** 的提交上 —— ` +
+        `在分支上打 tag 会指向版本号还没 bump 的提交（0.1.6 就是这么失败的）。`,
+    )
+  }
+
+  // ② 本地 main 的 package.json 版本必须等于目标版本
+  const versionAtHead = JSON.parse(sh('git show HEAD:package.json', { silent: true })).version
+  ok(`HEAD 上的版本: ${versionAtHead}（目标 ${current}）`)
+  if (versionAtHead !== current) {
+    problems.push(
+      `HEAD:package.json 是 ${versionAtHead}，不是 ${current}。` +
+        `说明你在版本 bump 之前的提交上，或者 main 还没快进到合并提交 —— 先 git pull --ff-only。`,
+    )
+  }
+
+  // ③ 本地 main 不能落后于 origin/main（合并提交在远端）
+  //    无 origin/main 参照（本地克隆、未 fetch、或纯本地仓库）时**不判失败** ——
+  //    那种情况下没有"远端合并提交"这回事，硬判会把这台机器上的正常流程误拒。
+  const hasRemoteRef = gitOk('rev-parse -q --verify refs/remotes/origin/main')
+  if (!hasRemoteRef) {
+    console.log('  · 无 origin/main 参照（未 fetch 或纯本地仓库）—— 跳过「落后远端」检查')
+  } else {
+    const behind = sh('git rev-list --count HEAD..origin/main', { silent: true })
+    ok(`落后 origin/main: ${behind} 个提交`)
+    if (behind !== '0') {
+      problems.push(
+        `本地落后 origin/main ${behind} 个提交 —— 合并提交在远端，先 git pull --ff-only。`,
+      )
+    }
+  }
+
+  // ④ 已存在的同名 tag 必须已经在正确位置（否则给出纠正指令）
+  const existing = gitOk(`rev-parse -q --verify refs/tags/v${current}`)
+    ? sh(`git rev-parse --short refs/tags/v${current}`, { silent: true })
+    : ''
+  if (existing) {
+    const tagVersion = JSON.parse(sh(`git show v${current}:package.json`, { silent: true })).version
+    ok(`已存在 tag v${current} → 版本 ${tagVersion}`)
+    if (tagVersion !== current) {
+      problems.push(
+        `已存在的 tag v${current} 指向的提交里 package.json 是 ${tagVersion}，位置错了。修正：\n` +
+          `        git tag -d v${current} && git tag v${current}\n` +
+          `        git push origin :refs/tags/v${current} && git push origin v${current}`,
+      )
+    }
+  }
+
+  if (problems.length) {
+    console.error(
+      '\n  ✗ 自查未通过 —— 现在打 tag 会复现「tag 与 package.json 不一致」的发布失败：\n',
+    )
+    for (const p of problems) console.error(`    • ${p}\n`)
+    process.exit(1)
+  }
+
+  console.log('\n  ✓ 自查全部通过，可以安全打 tag：\n')
+  console.log(`      git tag v${current}`)
+  console.log(`      git push origin v${current}\n`)
+  console.log(`  （打完自校验：git show v${current}:package.json 应显示 "version": "${current}"）`)
+  process.exit(0)
+}
 
 // ── --finish: 合并并推 tag 之后，补发 GitHub Release ─────────
 // 为什么单独一个模式：Release 必须在 tag 存在之后才能建，而 tag 现在要等 PR 合并
@@ -282,13 +371,17 @@ if (!prUrl) {
 const tagCmd = `git tag v${target} && git push origin v${target}`
 log('阶段 7/8  合并 + 打 tag（**tag 在合并之后**）')
 console.log(`  为什么不在这一步打 tag：合并提交由 GitHub 生成，本地拿不到它的 SHA。`)
-console.log(`  先打 tag 再合并，tag 会停在分支提交上、与 main 差一格（0.1.5 那次就是这样）。`)
+console.log(`  先打 tag 再合并，tag 会停在分支提交上、与 main 差一格。`)
+console.log(`  ⚠️ 0.1.5 与 0.1.6 两次都栽在这里（tag 指向的提交里 package.json 还是旧版本，`)
+console.log(`     publish.yml 第一步就退出：tag=0.1.6  package.json=0.1.5）。`)
 console.log('')
-console.log('  请按顺序做两步：')
+console.log('  请按顺序做三步：')
 console.log(`    ① 等 PR 的 checks / gate 双绿后合并：  gh pr merge ${branch} --merge`)
-console.log(`    ② 合并完成后**回到 main** 再打并推 tag：`)
-console.log('         git checkout main && git pull --ff-only')
-console.log(`         ${tagCmd}`)
+console.log(`    ② 回 main 并快进：                     git checkout main && git pull --ff-only`)
+console.log(`    ③ **先自查再打 tag**（这一步是新增的守卫，别跳过）：`)
+console.log(`         npm run release -- --tag`)
+console.log(`       它会校验「在 main 上 / HEAD 的版本 == ${target} / 未落后 origin」，`)
+console.log(`       通过后才打印可安全执行的 ${tagCmd.split(' && ')[0]} 命令。`)
 console.log('')
 console.log(
   '  （打 tag 走本机 pre-push 门禁；本机若有未提交改动，git checkout 会拒绝，先处理掉。）',
