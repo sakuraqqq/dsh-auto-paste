@@ -1,6 +1,6 @@
 {
   "name": "dsh-auto-paste",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "dsh-auto-paste — a DeepSeek Harness plugin (tool template, extended with a web client paste listener): 在输入框粘贴大段文本时自动保存为附件文件。",
   "repository": {
     "type": "git",
@@ -63,8 +63,8 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1",
-    "@deepseek-ai/dsh-typert-protocol": "^0.1.5-rc.1",
+    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1 || ^0.2.0-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.5-rc.1 || ^0.2.0-rc.2",
     "@deepseek-ai/schemastery": "^3.18.2"
   },
   "devDependencies": {
