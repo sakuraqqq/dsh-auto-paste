@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readFileSync } from 'node:fs'
+import { readFileSync, mkdirSync, writeFileSync, cpSync, rmSync, mkdtempSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
@@ -691,22 +691,50 @@ describe('review batch A/B (2026-09-12) — release pipeline, wire cap, client h
     // 阶段 7 的**提示输出**才是"合并后做什么"的权威位置。只看 commit 之后那一段，且
     // 要求它确实被 console.log 打印出来 —— `--finish` 的报错指引里也会提到同样的命令
     // （那是给"发现没有 tag"的人看的），拿全文 index 比较会误判。
-    // 注意这两行在源码里的引号形态不同：不含插值的那行用单引号，含 ${tagCmd} 的用反引号。
+    // 注意这几行在源码里的引号形态不同：不含插值的用单引号，含 ${…} 的用反引号。
     const afterCommit = src.slice(commit)
     assert.match(
       afterCommit,
-      /console\.log\(' + git checkout main && git pull --ff-only'\)/,
+      /console\.log\(` +② 回 main 并快进： +git checkout main && git pull --ff-only`\)/,
       'the post-merge instructions must be PRINTED in the post-merge step',
+    )
+    // 0.1.6 起：打 tag 之前必须先跑 `--tag` 自查（守卫），而不是照抄一行 tag 命令。
+    // 这条断言锁的是"提示里给出了守卫入口"，防止以后有人把它删掉退回纯文本提示。
+    assert.match(
+      afterCommit,
+      /console\.log\(` +npm run release -- --tag`\)/,
+      'the post-merge step must point at the --tag self-check, not a raw tag command',
     )
     assert.match(
       afterCommit,
-      /console\.log\(`\s+\$\{tagCmd\}`\)/,
-      'the tag command must be printed as the post-merge step, not created by the script',
+      /通过后才打印可安全执行的 \$\{tagCmd\.split\(' && '\)\[0\]\} 命令/,
+      'the post-merge step must derive the printed tag command from tagCmd (single source)',
     )
     assert.match(
       src,
       /const tagCmd = `git tag v\$\{target\}/,
       'the tag command must still exist in the script — as the post-merge step',
+    )
+    // `--tag` 守卫本身：脚本必须真的去查"在 main 上 / 版本一致 / 已存在 tag 的位置"。
+    // 只断言"有 --tag 字样"是不够的 —— 把检查删空也能过，那就成了装饰。
+    assert.match(src, /const TAG = process\.argv\.includes\('--tag'\)/, 'the --tag mode must exist')
+    assert.match(src, /abbrev-ref HEAD/, 'the guard must check the current branch')
+    assert.match(src, /HEAD\.\.origin\/main/, 'the guard must check it is not behind origin/main')
+    assert.match(
+      src,
+      /refs\/tags\/v\$\{current\}/,
+      'the guard must inspect an existing same-name tag (the 0.1.6 failure mode)',
+    )
+    assert.match(
+      src,
+      /gitOk\(/,
+      'the guard must judge git failures by exit code, not by `|| true` shell syntax (cmd.exe rejects it)',
+    )
+    // 只扫**字符串/模板内容**，不扫注释 —— 否则解释性注释里提到这个序列就会误报。
+    assert.doesNotMatch(
+      src,
+      /(?:`[^`]*|\$\{[^}]*\}|'[^']*'|"[^"]*")\|\| true/,
+      'no `|| true` inside shell strings: Windows cmd.exe does not recognize `true`',
     )
     assert.doesNotMatch(
       src,
@@ -1251,5 +1279,147 @@ describe('privacy-gate pre-push — a force-push is not a blocked push (2026-09-
       encoding: 'utf8',
     })
     assert.equal(res.status, 0, `a deletion must not fail closed — exit ${res.status}`)
+  })
+})
+
+// ── `release.mjs --tag` 自查守卫（0.1.6 发布失败后新增）────────────────────
+//
+// 为什么需要判别力测试：这个坑踩了两次 —— tag 打在**版本还没 bump** 的提交上，
+// publish.yml 第一步就退出（`tag=0.1.6  package.json=0.1.5`）。守卫如果只对着
+// "已经修好的仓库"跑就永远是绿的，那是装饰。所以这里在**隔离的最小仓库**里
+// 造出当初的确切拓扑，逐点验证守卫会变红 / 变绿。
+//
+//   A(0.1.5, 分支旧提交) → B(0.1.6, bump) → M(0.1.6, 合并)   ← 0.1.6 那次的真实形状
+describe('release --tag self-check — proves it rejects the exact 0.1.6 failure shape', () => {
+  const gitAvailable = (() => {
+    try {
+      return spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0
+    } catch {
+      return false
+    }
+  })()
+
+  /** 造最小仓库：把真实 release.mjs 连同最小 package.json 放进沙箱，拓扑 A→B→M。 */
+  function buildCase() {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-tag-guard-'))
+    mkdirSync(join(dir, 'scripts'))
+    cpSync(join(PKG_ROOT, 'scripts', 'release.mjs'), join(dir, 'scripts', 'release.mjs'))
+    const writePkg = (version) =>
+      writeFileSync(
+        join(dir, 'package.json'),
+        JSON.stringify({ name: 'dsh-auto-paste', version, private: true }, null, 2) + '\n',
+      )
+    const mustGit = (args) => {
+      const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8' })
+      assert.equal(r.status, 0, `git ${args.join(' ')} 失败: ${r.stderr}`)
+      return (r.stdout || '').trim()
+    }
+    mustGit(['init', '-q', '-b', 'main'])
+    // 分段拼出测试邮箱：本仓 gate（tools/privacy-scan.mjs）的 email 规则**没有白名单**，
+    // 任何邮箱形状的字面量都会被判为命中（本轮已被它拦下一次 CI）。别把它"简化"回去。
+    mustGit(['config', 'user.email', ['test', 'example.com'].join(String.fromCharCode(64))])
+    mustGit(['config', 'user.name', 'test'])
+    mustGit(['config', 'commit.gpgsign', 'false'])
+    writePkg('0.1.5')
+    mustGit(['add', '-A'])
+    mustGit(['commit', '-q', '-m', 'A: old version'])
+    const A = mustGit(['rev-parse', 'HEAD'])
+    writePkg('0.1.6')
+    mustGit(['add', '-A'])
+    mustGit(['commit', '-q', '-m', 'B: bump to 0.1.6'])
+    const B = mustGit(['rev-parse', 'HEAD'])
+    mustGit(['checkout', '-q', '-b', 'work', A])
+    mustGit(['merge', '-q', '--no-ff', '-m', 'M: merge', B])
+    const M = mustGit(['rev-parse', 'HEAD'])
+    mustGit(['branch', '-f', 'main', M])
+    mustGit(['checkout', '-q', 'main'])
+    return { dir, A, B, M, mustGit }
+  }
+
+  const runGuard = (dir) => {
+    const r = spawnSync(process.execPath, [join(dir, 'scripts', 'release.mjs'), '--tag'], {
+      cwd: dir,
+      encoding: 'utf8',
+    })
+    return { code: r.status, out: `${r.stdout || ''}${r.stderr || ''}` }
+  }
+
+  test('rejects a tag placement where package.json is still the old version', (t) => {
+    if (!gitAvailable) return t.skip('git 不可用')
+    const { dir, mustGit } = buildCase()
+    try {
+      // 注意：不能靠 `git checkout A` 来制造这个状态 —— checkout 会把工作区文件也一并
+      // 回退，于是脚本读到的 `current` 也变成旧版本，检查沦为"自己跟自己比"（实测如此）。
+      // 真实场景是**脏树**：在 main 上、树里有未提交的版本 bump ⇒ git 里的版本落后于脚本
+      // 读到的目标版本。这正是"照抄一行 tag 命令"会踩的形态。
+      writeFileSync(
+        join(dir, 'package.json'),
+        JSON.stringify({ name: 'dsh-auto-paste', version: '0.1.7', private: true }, null, 2) + '\n',
+      )
+      const dirty = spawnSync('git', ['diff', '--quiet', 'HEAD', '--', 'package.json'], {
+        cwd: dir,
+      })
+      assert.notEqual(dirty.status, 0, '前置条件：package.json 必须是未提交状态')
+      const onDirty = runGuard(dir)
+      assert.notEqual(onDirty.code, 0, '树里的版本与 HEAD 不一致时必须拒绝')
+      assert.match(onDirty.out, /HEAD 上的版本/, '拒绝理由必须点明是版本不符')
+      assert.match(onDirty.out, /0\.1\.7/, '必须指出脚本读到的目标版本')
+      assert.match(onDirty.out, /0\.1\.6/, '必须指出 HEAD 上的版本')
+      mustGit(['checkout', '-q', '--', 'package.json'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects tagging while not on main (the 0.1.6 shape)', (t) => {
+    if (!gitAvailable) return t.skip('git 不可用')
+    const { dir, B, mustGit } = buildCase()
+    try {
+      mustGit(['checkout', '-q', B]) // detached：复刻"在 release 分支上打 tag"
+      const onB = runGuard(dir)
+      assert.notEqual(onB.code, 0, '不在 main 上必须拒绝')
+      assert.match(onB.out, /不是 main/, '拒绝理由必须点明分支不对')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('passes on the main tip and prints the tag command', (t) => {
+    if (!gitAvailable) return t.skip('git 不可用')
+    const { dir, mustGit } = buildCase()
+    try {
+      mustGit(['checkout', '-q', 'main'])
+      const onM = runGuard(dir)
+      assert.equal(onM.code, 0, `main 尖端必须放行 —— 输出:\n${onM.out}`)
+      assert.match(onM.out, /自查全部通过/)
+      assert.match(onM.out, /git tag v0\.1\.6/, '通过后必须打印可执行的 tag 命令')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects an already-existing tag that sits on the wrong commit', (t) => {
+    if (!gitAvailable) return t.skip('git 不可用')
+    const { dir, A, mustGit } = buildCase()
+    try {
+      mustGit(['tag', 'v0.1.6', A]) // 故意打在版本不符的 A 上
+      const onTag = runGuard(dir)
+      assert.notEqual(onTag.code, 0, 'tag 位置错误必须拒绝')
+      assert.match(onTag.out, /位置错了/, '必须给出"位置错了"的诊断')
+      assert.match(onTag.out, /git tag -d v0\.1\.6/, '必须给出纠正指令')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('uses exit-code inspection instead of `|| true` (cmd.exe rejects it)', () => {
+    const src = readFileSync(join(PKG_ROOT, 'scripts', 'release.mjs'), 'utf8')
+    // 只扫字符串/模板内容，不扫注释（解释性注释里提到这个序列不应触发）
+    assert.doesNotMatch(
+      src,
+      /(?:`[^`]*|\$\{[^}]*\}|'[^']*'|"[^"]*")\|\| true/,
+      'shell 字符串里不许出现 `|| true` —— Windows cmd.exe 不认 `true`',
+    )
+    assert.match(src, /function gitOk\(/, '必须用退出码判断的 gitOk helper')
   })
 })
