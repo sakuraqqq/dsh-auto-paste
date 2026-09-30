@@ -64,6 +64,15 @@ dsh --profile web
 
 改动插件后：`pnpm install && pnpm run build`（tsc → dist/），然后重启 `dsh --profile web` 并刷新页面。
 
+**官方桌面版（DeepSeek Harness 桌面应用）**：同样支持，但要在**桌面版自己的 profile 上单独装一次**（它不复用 web profile 的装配）——桌面版自带 CLI，在应用安装目录下执行：
+
+```sh
+set "DSH_HOME=%USERPROFILE%\.dsh"          # 换成桌面版实际使用的 home（隔离启动器会改它）
+resources\runtime\cli\bin\dsh.cmd plugin --profile desktop add dsh-auto-paste
+```
+
+桌面版是独立 dsh 线（如 `0.2.0-rc.2`）。若它的运行时版本超出本插件声明的 peer 范围，dsh 会**拒绝加载该 bundle**（表现为插件完全无输出、设置里也没有本插件的阈值项），需要**精确版本豁免**——用 `dsh plugin --profile desktop allow-version dsh-auto-paste@<版本> --dsh-version <运行时版本> --accept-risk`，它会在 profile 目录写一个 `compatibility.json`；`--dsh-version` 必须填它报错时给出的那个值。豁免是**精确配对**的，插件升级或 dsh 升级都不会继承。
+
 `minChars` 有两个入口：**Settings → General 的「大段粘贴阈值」**（保存即生效、不用重启；旁边的「恢复默认」清掉这次覆盖），以及 `cordis.patch.yml` 的 row config（**部署默认值**，改完只需重启 dsh、不用重新构建）。用户设置优先，没设置时用部署默认值。
 
 覆盖值存在哪里随 dsh 线而变，保存后都立即生效：**0.1.5** 存进 dsh 自己的设置文档；**0.1.7 起** dsh 改成"从插件自己的 Config 投影"，覆盖值写回 profile patch（同一个 `cordis.patch.yml`）—— 所以本插件把 `minChars` 声明为 schemastery 的 volatile 字段：没有它，dsh 不会为该插件生成表单，写入也会被拒。当前 dsh 无法在界面保存时（没有 settings 服务、或该线不支持 volatile），设置行会说明原因并禁用保存。
@@ -84,10 +93,12 @@ dsh --profile headless "run a probe"                    # host 半身加载；�
 - [x] `dsh.client.platform: web` + `exports["./client"]` → `dist/client.js`
 - [x] `exports["./typert"]` → `dist/typert.host.js`（typert-loader 自动注册 remote 调用）
 - [x] 代码无外发数据：插件不发起任何网络请求，只写工作区 `pastes/` 下的本地文件
+- [x] DSH peer 范围**两段并列**（`^0.1.5-rc.1 || ^0.2.0-rc.2`）——**别改回单段**：dsh 在挂载前用 semver 逐个校验 `@deepseek-ai/dsh`/`@deepseek-ai/dsh-*` peer（带 `includePrerelease`），任一不满足就**整包拒绝加载**。单段 `^0.1.x` 会拒掉 0.2 线（官方桌面版在跑 0.2.0-rc.2）；写成区间（`>=0.1.5-rc.1 <0.3.0`）又会把**没测过的** 0.2.1+ 一并放行。并列两段 = 只放行实测过的线
 
 ## Dependencies pinned / 依赖锁定
 
-- `@deepseek-ai/dsh-tools`: `0.1.0-rc.6` (exact — the **`next`**-tag line; npm `latest` is stale).
+- `@deepseek-ai/dsh-tools`: `^0.1.5-rc.1 || ^0.2.0-rc.2`（peerDependency — 两段并列，见上）
+- `@deepseek-ai/dsh-typert-protocol`: `^0.1.5-rc.1 || ^0.2.0-rc.2`（peerDependency — 同上；RPC schema 那一层）
 - `@deepseek-ai/cordis`: `^4.0.1` (peerDependency — host provides it; runtime import of `Service` resolves through the profile's node_modules).
 - `zod`: `^4.4.3` (Typert host schema instances, same line as in-box host remotes).
 
@@ -105,6 +116,8 @@ dsh --profile headless "run a probe"                    # host 半身加载；�
    - 纯 ESM：package.json 必须 "type": "module"；tsc 用 module:esnext + moduleResolution:bundler 保留 bare specifier。
 6. `dsh plugin add <dir>` anchors relative paths to the INVOKING directory — run it from the parent directory, not from inside the plugin.
    - dsh plugin add <dir> 的相对路径锚定调用目录——要在插件的父目录执行。
+7. A DSH peer mismatch is a SILENT total failure on the desktop build: dsh evaluates every `@deepseek-ai/dsh*` peer before mounting a bundle, and a rejected bundle is skipped without a word — no host log, no client bundle request, no settings row. If the plugin "does nothing at all" on a newer dsh line (the desktop app runs its own line, e.g. `0.2.0-rc.2`), read `package.json` peer ranges FIRST, then grant the exact-version exemption (see Install).
+   - DSH peer 不匹配在桌面版上是**完全静默**的失败：dsh 在挂载 bundle 前逐个校验 peer，被拒的 bundle 被直接跳过——host 无日志、client bundle 不被请求、设置里也没有本插件的行。若插件在某条更新的 dsh 线（桌面版自带一条，如 `0.2.0-rc.2`）上"毫无反应"，**先看 `package.json` 的 peer 范围**，再考虑精确版本豁免（见安装节）。
 7. In the bundle `cordis.patch.yml`, `name` is a package name (resolved via node_modules / `$DSH_HOME/profiles/node_modules`), not a relative path.
    - bundle 的 cordis.patch.yml 里 name 用包名（走 node_modules 解析），不要用相对路径。
 8. Registrations are effects: `ctx.tools.register()` / `ctx.on()` auto-dispose on unload. Wrap your OWN resources (timers/connections) in `ctx.effect(() => { acquire; return cleanup })`.
