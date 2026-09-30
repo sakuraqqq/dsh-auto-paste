@@ -691,22 +691,50 @@ describe('review batch A/B (2026-09-12) — release pipeline, wire cap, client h
     // 阶段 7 的**提示输出**才是"合并后做什么"的权威位置。只看 commit 之后那一段，且
     // 要求它确实被 console.log 打印出来 —— `--finish` 的报错指引里也会提到同样的命令
     // （那是给"发现没有 tag"的人看的），拿全文 index 比较会误判。
-    // 注意这两行在源码里的引号形态不同：不含插值的那行用单引号，含 ${tagCmd} 的用反引号。
+    // 注意这几行在源码里的引号形态不同：不含插值的用单引号，含 ${…} 的用反引号。
     const afterCommit = src.slice(commit)
     assert.match(
       afterCommit,
-      /console\.log\(' + git checkout main && git pull --ff-only'\)/,
+      /console\.log\(` +② 回 main 并快进： +git checkout main && git pull --ff-only`\)/,
       'the post-merge instructions must be PRINTED in the post-merge step',
+    )
+    // 0.1.6 起：打 tag 之前必须先跑 `--tag` 自查（守卫），而不是照抄一行 tag 命令。
+    // 这条断言锁的是"提示里给出了守卫入口"，防止以后有人把它删掉退回纯文本提示。
+    assert.match(
+      afterCommit,
+      /console\.log\(` +npm run release -- --tag`\)/,
+      'the post-merge step must point at the --tag self-check, not a raw tag command',
     )
     assert.match(
       afterCommit,
-      /console\.log\(`\s+\$\{tagCmd\}`\)/,
-      'the tag command must be printed as the post-merge step, not created by the script',
+      /通过后才打印可安全执行的 \$\{tagCmd\.split\(' && '\)\[0\]\} 命令/,
+      'the post-merge step must derive the printed tag command from tagCmd (single source)',
     )
     assert.match(
       src,
       /const tagCmd = `git tag v\$\{target\}/,
       'the tag command must still exist in the script — as the post-merge step',
+    )
+    // `--tag` 守卫本身：脚本必须真的去查"在 main 上 / 版本一致 / 已存在 tag 的位置"。
+    // 只断言"有 --tag 字样"是不够的 —— 把检查删空也能过，那就成了装饰。
+    assert.match(src, /const TAG = process\.argv\.includes\('--tag'\)/, 'the --tag mode must exist')
+    assert.match(src, /abbrev-ref HEAD/, 'the guard must check the current branch')
+    assert.match(src, /HEAD\.\.origin\/main/, 'the guard must check it is not behind origin/main')
+    assert.match(
+      src,
+      /refs\/tags\/v\$\{current\}/,
+      'the guard must inspect an existing same-name tag (the 0.1.6 failure mode)',
+    )
+    assert.match(
+      src,
+      /gitOk\(/,
+      'the guard must judge git failures by exit code, not by `|| true` shell syntax (cmd.exe rejects it)',
+    )
+    // 只扫**字符串/模板内容**，不扫注释 —— 否则解释性注释里提到这个序列就会误报。
+    assert.doesNotMatch(
+      src,
+      /(?:`[^`]*|\$\{[^}]*\}|'[^']*'|"[^"]*")\|\| true/,
+      'no `|| true` inside shell strings: Windows cmd.exe does not recognize `true`',
     )
     assert.doesNotMatch(
       src,
