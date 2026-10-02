@@ -59,7 +59,16 @@ const PATTERNS = [
   // which is what let this gate flag its own allow-list (2026-09-30).
   ['drive-path', /[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/](?!<)/],
   ['unix-home-path', /[\\/](?:home|Users)[\\/](?!<)[A-Za-z0-9._-]+\//],
-  ['email', /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/],
+  // A GitHub noreply address is PUBLIC BY DESIGN — the coordination rules REQUIRE
+  // it as the commit identity, and the local hook has always excluded it
+  // (tools/privacy-gate.mjs:81 uses these same three alternatives). THIS scanner
+  // did not, so a noreply address written into a release record passed the hook
+  // and failed CI: 2026-10-02, commit 64d1b53 → PR #8 went red on `email`.
+  // Two doors, one rule — this is the outlier being aligned, not the rule relaxed.
+  [
+    'email',
+    /[A-Za-z0-9._%+-]+@(?!(?:users\.noreply\.github\.com|noreply\.[A-Za-z0-9.-]{1,64}|example\.(?:com|org|net))\b)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/,
+  ],
   ['cn-mobile', /(?:^|[^0-9])1[3-9][0-9]{9}(?:[^0-9]|$)/],
   ['npm-token', /npm_[A-Za-z0-9]{20,}/],
   ['github-token', /(?:ghp|gho|ghu|ghs)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}/],

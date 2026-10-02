@@ -375,7 +375,12 @@ window.__ModuleLoader__.load({
                 ref: mention,
                 label: `${name} · ${chars} 字符`,
                 appearance: 'file',
-                clipboardText: mention,
+                // NOT the bare mention (2026-10-02, decision C): this string IS the draft
+                // projection, and dsh persists exactly that as the session draft — so after a
+                // session switch the chip returns as TEXT. Carrying the size keeps that text as
+                // informative as the pre-0.2.0 form. The model still gets the bare mention: at
+                // send time the send path replaces this whole span with `serializeReference`.
+                clipboardText: pasteReference(path, chars).trimStart(),
             };
         }
         /**
@@ -400,6 +405,36 @@ window.__ModuleLoader__.load({
             if (!scope)
                 return null;
             return { input, scope, actions: slotInput.actions };
+        }
+        /**
+         * Does the mention need a separating space in front of it?
+         *
+         * Both of dsh's reference scans anchor on `(^|\s)`: the composer's
+         * `TEXT_REF_RE`/`FOLDER_REF_RE` (dsh-client-ui-conversation) and the transcript's
+         * `projectUserText` (dsh-client-ui-primitives). A chip whose mention ends up glued
+         * to the character in front of it is invisible to BOTH, so the paste renders as dead
+         * plain text — exactly the 2026-10-02 report (mention glued to 说 / 是; the same
+         * paste alone in the draft renders as a proper file card).
+         *
+         * The character is read from the composer DOM because the facade hands out draft
+         * SPANS, not draft text. `true` is the fail-safe answer: an extra space is harmless,
+         * a missing boundary costs the whole feature.
+         */
+        function needsBoundarySpace() {
+            const root = document.querySelector('[data-input-scroll] [contenteditable="true"]');
+            const selection = window.getSelection();
+            if (root === null || selection === null || selection.rangeCount === 0)
+                return true;
+            const caret = selection.getRangeAt(0);
+            if (!root.contains(caret.startContainer))
+                return true;
+            const before = document.createRange();
+            before.selectNodeContents(root);
+            before.setEnd(caret.startContainer, caret.startOffset);
+            const text = before.toString();
+            if (text === '')
+                return false;
+            return !/\s/u.test(text.slice(-1));
         }
         /**
          * Insert the saved paste as the composer's OWN atomic reference chip, so the
@@ -437,8 +472,18 @@ window.__ModuleLoader__.load({
                 const modelText = await controller?.serializeReference?.('reference', chip.ref, signal);
                 if (typeof modelText !== 'string')
                     return false;
+                const composer = parts.input.for(parts.scope);
+                // Put a real space into the draft when the caret follows a non-space (see
+                // needsBoundarySpace). It has to be a CHARACTER of its own, never part of the
+                // chip: the chip's span is replaced by the bare mention at send time, so a space
+                // carried inside it would vanish exactly when it is needed.
+                if (needsBoundarySpace() && typeof composer.insertText === 'function') {
+                    composer.insertText(' ', parts.actions.captureInsertion());
+                }
+                // Re-captured AFTER that edit: the space moved the draft revision, and
+                // `insertReference` CAS-checks the span it is handed.
                 const span = parts.actions.captureInsertion();
-                return parts.input.for(parts.scope).insertReference(chip, span) === true;
+                return composer.insertReference(chip, span) === true;
             }
             catch (error) {
                 console.warn(`[${PACKAGE}] atomic reference chip unavailable, using the text reference instead:`, error);

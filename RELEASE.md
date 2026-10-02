@@ -101,6 +101,23 @@ npm publish                    # ⚠️ dist-tag 注意：README 记录过 @deep
 - [ ] 发布后从 registry 装到新 profile 重跑阶段 A 验收（不再用 tarball/link）——0.1.1 发布后执行
 - [ ] npm 页面描述/README 渲染正常——0.1.1 发布后核对
 
+### 0.2.0 发布记录（2026-10-01）
+
+大改动版本：输入框改为 dsh 原生**原子引用卡片**（文件名 + 字符数、一键删除、点击在侧栏打开），并**删除 capture bar（药丸）**；同时补齐编码/形态压力测试（CRLF、超长单行、空行、BOM、UTF-8 字节级）。
+
+- [x] 发布通道改为 **CI 发布**：打 tag → `.github/workflows/publish.yml`（npm Trusted Publisher / OIDC）→ dist-tag `next`（不再用本机 token 手动 publish）
+- [x] PR [#7](https://github.com/sakuraqqq/dsh-auto-paste/pull/7) 合并提交 `6949542`；tag `v0.2.0` **指向该合并提交**（`publish.yml` 第一步守卫要求 tag 与 tag 内 `package.json` 版本一致——0.1.5 / 0.1.6 两次都栽在 tag 打在合并前的分支提交上）
+- [x] publish 工作流 SUCCESS；npm `next` = `0.2.0`
+- [x] GitHub Release：https://github.com/sakuraqqq/dsh-auto-paste/releases/tag/v0.2.0 （notes 源 = `RELEASE-NOTES-v0.2.0.md`；回读校验无乱码）
+- [x] **隐私 / 版权审查（发布前强制）结论：通过**
+  - 隐私：源码面 grep（绝对路径 / 邮箱 / 手机号）4 处命中**全部是 `tools/` 下扫描器自身的测试夹具**（样例字符串），而 `tools/` **不进 npm 包**；**包面**（`npm pack` 解包后 10 个文件逐个扫）**零命中**；提交身份为 GitHub **noreply** 地址（按门禁口径，此处不写字面值；功能与 release 两个提交均如此）；无 token / OTP / `.npmrc` 入库（发布走 OIDC）
+  - 版权：本包 MIT（LICENSE 保留版权行）；无第三方代码内联、无 vendor 目录；本版本**未新增依赖**；无新增图片/字体/示例数据
+  - 远程门禁：PR 的 `checks`(ci) 与 `gate`(privacy-gate) 均 SUCCESS；CI 内 `dist/ + lib/ 必须与源码一致` 一步亦绿
+- [x] 从 registry 拉真包复验：`npm pack dsh-auto-paste@0.2.0` → 10 文件；`dist/client.js`（51846 B）含卡片 size 后缀与新提示组件，**不含** `CaptureBar`、**不含**药丸 CSS
+- [ ] 观察期 ≥3 天 → 转正 `latest`：`npm dist-tag add dsh-auto-paste@0.2.0 latest`，随后 `npm view dsh-auto-paste dist-tags --prefer-online` 核验
+- [ ] 转正前：在一个**新 profile** 里从 registry 安装并重跑阶段 A 验收（不再用 link / tarball）
+- [ ] awesome-dsh-plugin 条目描述更新（本版本有功能变化）
+
 ### 0.1.1 发布待办（2026-08-16 新增）
 
 - [x] README 安装说明加 npm 方式 + 1MiB 上限说明（commit 20d1d46）
