@@ -443,19 +443,71 @@ describe('static regression guards — past bugs must not resurrect', () => {
     const payload = body.slice(body.indexOf('return {'))
     // `ref` must be the BARE mention: openReference derives the path from it
     // (`ref.slice(2, -1)` for the quoted form), so a trailing size would be read as
-    // part of the path and the preview would open nothing. The size rides in `label`
-    // only — which is exactly why this check is scoped to the two mention fields
-    // instead of the whole payload (the label is SUPPOSED to carry 字符).
+    // part of the path and the preview would open nothing.
     assert.match(payload, /ref: mention,/, 'ref is the bare mention, shared with the model text')
-    assert.match(payload, /clipboardText: mention,/, 'and so is the clipboard/persistence form')
-    const mentionFields = payload
+    const refField = payload
       .split('\n')
-      .filter((line) => /^\s*(ref|clipboardText):/u.test(line))
+      .filter((line) => /^\s*ref:/u.test(line))
       .join('\n')
     assert.doesNotMatch(
-      mentionFields,
+      refField,
       /字符/,
-      'the count must not ride inside ref/clipboardText — openReference would read it as part of the path',
+      'the count must NOT ride inside ref — openReference would read it as part of the path',
+    )
+    // clipboardText IS the draft projection, and since 2026-10-02 it carries the size
+    // on purpose (decision C): dsh persists exactly this string as the session draft,
+    // so a session switch downgrades a chip to TEXT — and that text should still say
+    // how big the paste was, exactly like the pre-0.2.0 form did. It reuses the one
+    // token builder (`trimStart` drops the leading boundary space, which the text path
+    // needs and the chip path gets from a real draft character instead).
+    assert.match(
+      payload,
+      /clipboardText: pasteReference\(path, chars\)\.trimStart\(\),/,
+      'the draft projection is the token WITH the count, without the boundary space',
+    )
+  })
+
+  test('the chip guarantees a whitespace boundary before the mention', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+    const start = src.indexOf('async function insertReferenceChip')
+    assert.ok(start >= 0, 'insertReferenceChip must exist')
+    const fn = src.slice(start, src.indexOf('let slotSessionId = null', start))
+    // Both of dsh's reference scans anchor on `(^|\s)`: the composer's TEXT_REF_RE
+    // (dsh-client-ui-conversation) and the transcript's projectUserText
+    // (dsh-client-ui-primitives). A mention glued to the character in front of it is
+    // recognised by NEITHER, so the paste renders as dead plain text — the exact
+    // 2026-10-02 report ("发出去变纯文本了", mention glued to 说/是).
+    assert.match(
+      fn,
+      /if \(needsBoundarySpace\(\) && typeof composer\.insertText === 'function'\)/,
+      'the insertion checks the boundary it is about to violate, behind a capability probe',
+    )
+    assert.match(
+      fn,
+      /composer\.insertText\(' ', parts\.actions\.captureInsertion\(\)\)/,
+      'and repairs it with a REAL space character in the draft',
+    )
+    assert.match(
+      fn,
+      /const span = parts\.actions\.captureInsertion\(\)/,
+      'the chip span is re-captured after that edit (the draft revision moved)',
+    )
+    const helper = src.slice(src.indexOf('function needsBoundarySpace'), start)
+    assert.match(
+      helper,
+      /document\.querySelector\('\[data-input-scroll\] \[contenteditable="true"\]'\)/,
+      'the character before the caret is read from the composer DOM (the facade exposes spans, not text)',
+    )
+    assert.match(helper, /if \(text === ''\) return false/, 'the draft start is a valid boundary')
+    assert.match(
+      helper,
+      /return !\/\\s\/u\.test\(text\.slice\(-1\)\)/,
+      'whitespace in front is a boundary; anything else is not',
+    )
+    assert.match(
+      helper,
+      /return true[\s\S]*?return true/,
+      'and "cannot tell" must answer true — an extra space is harmless, a missing boundary costs the feature',
     )
   })
 
