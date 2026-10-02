@@ -110,7 +110,7 @@ npm publish                    # ⚠️ dist-tag 注意：README 记录过 @deep
 - [x] publish 工作流 SUCCESS；npm `next` = `0.2.0`
 - [x] GitHub Release：https://github.com/sakuraqqq/dsh-auto-paste/releases/tag/v0.2.0 （notes 源 = `RELEASE-NOTES-v0.2.0.md`；回读校验无乱码）
 - [x] **隐私 / 版权审查（发布前强制）结论：通过**
-  - 隐私：源码面 grep（绝对路径 / 邮箱 / 手机号）4 处命中**全部是 `tools/` 下扫描器自身的测试夹具**（样例字符串），而 `tools/` **不进 npm 包**；**包面**（`npm pack` 解包后 10 个文件逐个扫）**零命中**；提交身份 `sakuraqqq@users.noreply.github.com`（noreply，功能与 release 两个提交均如此）；无 token / OTP / `.npmrc` 入库（发布走 OIDC）
+  - 隐私：源码面 grep（绝对路径 / 邮箱 / 手机号）4 处命中**全部是 `tools/` 下扫描器自身的测试夹具**（样例字符串），而 `tools/` **不进 npm 包**；**包面**（`npm pack` 解包后 10 个文件逐个扫）**零命中**；提交身份为 GitHub **noreply** 地址（按门禁口径，此处不写字面值；功能与 release 两个提交均如此）；无 token / OTP / `.npmrc` 入库（发布走 OIDC）
   - 版权：本包 MIT（LICENSE 保留版权行）；无第三方代码内联、无 vendor 目录；本版本**未新增依赖**；无新增图片/字体/示例数据
   - 远程门禁：PR 的 `checks`(ci) 与 `gate`(privacy-gate) 均 SUCCESS；CI 内 `dist/ + lib/ 必须与源码一致` 一步亦绿
 - [x] 从 registry 拉真包复验：`npm pack dsh-auto-paste@0.2.0` → 10 文件；`dist/client.js`（51846 B）含卡片 size 后缀与新提示组件，**不含** `CaptureBar`、**不含**药丸 CSS
