@@ -114,9 +114,26 @@ npm publish                    # ⚠️ dist-tag 注意：README 记录过 @deep
   - 版权：本包 MIT（LICENSE 保留版权行）；无第三方代码内联、无 vendor 目录；本版本**未新增依赖**；无新增图片/字体/示例数据
   - 远程门禁：PR 的 `checks`(ci) 与 `gate`(privacy-gate) 均 SUCCESS；CI 内 `dist/ + lib/ 必须与源码一致` 一步亦绿
 - [x] 从 registry 拉真包复验：`npm pack dsh-auto-paste@0.2.0` → 10 文件；`dist/client.js`（51846 B）含卡片 size 后缀与新提示组件，**不含** `CaptureBar`、**不含**药丸 CSS
-- [ ] 观察期 ≥3 天 → 转正 `latest`：`npm dist-tag add dsh-auto-paste@0.2.0 latest`，随后 `npm view dsh-auto-paste dist-tags --prefer-online` 核验
-- [ ] 转正前：在一个**新 profile** 里从 registry 安装并重跑阶段 A 验收（不再用 link / tarball）
-- [ ] awesome-dsh-plugin 条目描述更新（本版本有功能变化）
+- [x] **转正 `latest`（2026-10-05 完成）** —— 实际转正的是 **0.2.1**（含 0.2.0 全部内容 + 两项引用修复 + 门禁口径对齐，见下节），0.2.0 不再单独转正。方式：**npm 网页端 Tags 管理**（CLI `npm dist-tag add` 报 **E401**：本机旧 bypass-2FA token 随 npm 账号侧收紧失效；页头横幅原文：tokens that bypass 2FA are being restricted —— **account changes (Aug 2026) / direct publishing (Jan 2027)**）。核验：`dist-tags = { latest: 0.2.1, next: 0.2.1 }` ✓
+- [ ] 转正前：在一个**新 profile** 里从 registry 安装并重跑阶段 A 验收（不再用 link / tarball）—— ⚠️ **仍未做**（转正已先完成）
+- [ ] awesome-dsh-plugin 条目描述更新（本版本有功能变化）—— ⚠️ **仍未做**
+
+### 0.2.1 发布记录（2026-10-05）
+
+两项引用缺陷修复（用户实测上报）+ 一条门禁口径对齐；走与 0.2.0 相同的 CI 发布通道。
+
+- [x] PR [#8](https://github.com/sakuraqqq/dsh-auto-paste/pull/8) → 合并提交 `f22e166`；tag `v0.2.1` **指向该合并提交**（`--tag` 自查：在 main / 版本一致 / 未落后 三项全过）
+- [x] publish 工作流 SUCCESS；`npm publish` 日志确认 `Publishing … with tag next` + provenance 已签名 + `+ dsh-auto-paste@0.2.1`
+  - ⚠️ 记录一条误判陷阱：发布后 npm **读侧有数分钟传播窗口**，期间 `npm view …@0.2.1` 会 404 —— **这不是失败**（当时我据此判"矛盾"，实际只是没等够）
+- [x] GitHub Release：https://github.com/sakuraqqq/dsh-auto-paste/releases/tag/v0.2.1 （notes 源 = `RELEASE-NOTES-v0.2.1.md`）
+- [x] **转正 `latest` = 0.2.1**（2026-10-05，npm 网页 Tags；`latest`/`next` 均指向 0.2.1 ✓）
+- 修复内容（细节见 `RELEASE-NOTES-v0.2.1.md` 与 `.私档/BACKLOG-0.1.5.md` §六）：
+  - **#2 卡片前导空格边界**：dsh 两处引用扫描都要求 `(^|\s)`，紧贴文字粘贴会让 mention 渲染成死文本 ⇒ 插入前补一个**真实空格字符**（**不能**放进卡片 span：发送时该 span 会被 `serializeReference` 的裸 mention 替换）
+  - **#1 的 C 项**：卡片 `clipboardText` 带字符数 ⇒ 会话切换退化后仍显示 `(N 字符)`
+  - **门禁口径对齐**：`tools/privacy-scan.mjs` 的 email 规则补齐钩子已有的 noreply 白名单 —— 修掉"本机钩子说通过、CI 说红"的陷阱（起因：本次提交把 noreply **字面值**写进了本文件）
+- [x] 测试 **100/100**（两条新守卫均**先红后绿**）；eslint / prettier / privacy / metrics 全绿；`dist/`+`lib/` 与源码逐字节一致（CI 同项亦绿）
+- [ ] 待办：新 profile 从 registry 复验；awesome-dsh-plugin 描述更新；better-sidebar **发版后**重测保存路线并撤掉 README 的 caveat（上游已在 `main` 修好、带 `fs-write-relative-path.spec`，但 latest 仍 0.24.1）
+
 
 ### 0.1.1 发布待办（2026-08-16 新增）
 
