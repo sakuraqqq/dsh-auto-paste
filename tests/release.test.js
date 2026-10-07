@@ -1677,8 +1677,18 @@ describe('0.2.2 — the one-shot hint is addressed to the session that raised it
   })
 
   test('the paste path hands over the very session it resolved', () => {
-    assert.match(
+    // Scoped to the PASTE HANDLER on purpose. A bare search for
+    // `offerSidebarHint(sessionId)` is satisfied by the function's own DEFINITION
+    // line, so the first version of this assertion stayed green even with the call
+    // site reverted to `offerSidebarHint()` — a vacuous check (found by the
+    // 2026-10-07 adversarial review, which measured the call site 51k chars later).
+    const pastePath = between(
       readClient(),
+      'const onPaste = (event) =>',
+      "document.addEventListener('paste'",
+    )
+    assert.match(
+      pastePath,
       /offerSidebarHint\(sessionId\)/,
       'the offer must name the session the paste was saved for',
     )
@@ -1703,11 +1713,20 @@ describe('0.2.2 — the one-shot hint is addressed to the session that raised it
   test('rendering the hint consumes the offer', () => {
     const src = readClient()
     const hint = between(src, 'function SidebarHint(props)', 'function mountSidebarHint')
-    assert.match(hint, /consumeSidebarHint\(\)/, 'the slot that rendered it takes it off the table')
-    assert.match(
-      hint,
-      /React\.useEffect/,
-      'from an effect — a render-time write is a side effect and runs twice under StrictMode',
+    const consumeAt = hint.indexOf('consumeSidebarHint()')
+    assert.ok(consumeAt >= 0, 'the slot that rendered it takes it off the table')
+    // INSIDE an effect callback, and inside the SAME one. "React.useEffect appears
+    // somewhere in this window" was satisfied by the identity latch above, so a
+    // consume written into the render body passed that check too.
+    const effectAt = hint.lastIndexOf('React.useEffect(', consumeAt)
+    assert.ok(
+      effectAt >= 0,
+      'consumption must run from an effect — a render-time write runs twice under StrictMode',
+    )
+    assert.doesNotMatch(
+      hint.slice(effectAt, consumeAt),
+      /\}, \[/,
+      'and from the same effect callback: a consume after that callback closed is a render-body write',
     )
     assert.match(
       from(src, 'function consumeSidebarHint', 300),
@@ -1718,15 +1737,48 @@ describe('0.2.2 — the one-shot hint is addressed to the session that raised it
 
   test('the annotation outlives its own consumption without outliving its session', () => {
     const hint = between(readClient(), 'function SidebarHint(props)', 'function mountSidebarHint')
+    // The flag must not appear in the early-return condition in ANY order: the
+    // first version only rejected the literal `!hintWanted || !open`, so the same
+    // regression rewritten as `!open || !hintWanted` sailed straight through.
     assert.doesNotMatch(
       hint,
-      /!hintWanted \|\| !open/,
+      /if \([^)]*hintWanted[^)]*\) return null/,
       'the page-wide flag must not be the render condition: consuming would blink the hint away',
     )
     assert.match(
       hint,
-      /shownFor !== myKey/,
-      'a local latch (bound to the session key) keeps THIS annotation for THIS session',
+      /if \(!open[^\n]*shownFor !== myKey\) return null/,
+      'the guard needs BOTH the local open latch and the session key — dropping either regresses',
     )
+  })
+
+  // Every assertion above reads the SOURCE, so together they pin the shape but
+  // nothing that can fail at runtime — the adversarial review's sharpest point:
+  // `ownsSidebarHint` could be made to return true unconditionally while all of
+  // the text checks stayed green. The bundle is self-contained (no importable
+  // module), so the pure verdict is extracted and evaluated here: a truth table
+  // that goes red the moment the ownership rule regresses.
+  test('ownsSidebarHint answers the ownership truth table', () => {
+    const body = from(readClient(), 'function ownsSidebarHint', 700)
+    const close = body.indexOf('\n    }')
+    assert.ok(close > 0, 'the function must close at the module indentation level')
+    const verdict = new Function(
+      `${body.slice(0, close + '\n    }'.length)}; return ownsSidebarHint`,
+    )()
+    assert.equal(typeof verdict, 'function', 'the extracted text must evaluate to a function')
+    assert.equal(verdict(false, 'A', 'A'), false, 'no offer standing → nobody claims it')
+    assert.equal(verdict(true, 'A', 'A'), true, 'addressed to me → I claim it')
+    assert.equal(
+      verdict(true, 'A', 'B'),
+      false,
+      'addressed to ANOTHER session → refused (the regression)',
+    )
+    assert.equal(
+      verdict(true, 'A', undefined),
+      true,
+      'slot with no identity (0.1.5) → page-wide, as before',
+    )
+    assert.equal(verdict(true, null, 'B'), true, 'offer with no address → cannot discriminate')
+    assert.equal(verdict(true, '42', 42), true, 'branded ids compare as strings')
   })
 })
