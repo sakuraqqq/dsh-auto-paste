@@ -1626,3 +1626,107 @@ describe('release --tag self-check — proves it rejects the exact 0.1.6 failure
     assert.match(src, /function gitOk\(/, '必须用退出码判断的 gitOk helper')
   })
 })
+
+describe('0.2.2 — the one-shot hint is addressed to the session that raised it', () => {
+  const readClient = () => readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+  const from = (src, marker, span = 900) => {
+    const start = src.indexOf(marker)
+    assert.ok(start >= 0, `${marker} must exist in src/client.js`)
+    return src.slice(start, start + span)
+  }
+  // Whole-function window: a magic span would silently stop covering the tail of a
+  // function that grows, and a tail that falls out of the window reads as "passed".
+  const between = (src, startMarker, endMarker) => {
+    const start = src.indexOf(startMarker)
+    assert.ok(start >= 0, `${startMarker} must exist in src/client.js`)
+    const end = src.indexOf(endMarker, start)
+    assert.ok(end > start, `${endMarker} must follow ${startMarker}`)
+    return src.slice(start, end)
+  }
+
+  // The bug (reported from a phone, 2026-10-05): pasting a large chunk in ONE
+  // conversation raised a PAGE-WIDE `hintWanted`, so the annotation also painted
+  // above the composer of whichever session the user switched to next. The offer
+  // now names the session it belongs to, and the slot that renders it consumes it.
+  test('the sidebar snapshot carries the session an offer belongs to', () => {
+    const src = readClient()
+    assert.match(
+      src,
+      /let sidebarState = \{ adopted: false, hintWanted: false, hintSessionId: null \}/,
+      'the snapshot needs the address, not just the flag',
+    )
+    assert.match(
+      from(src, 'const publishSidebar = (next)', 500),
+      /merged\.hintSessionId === sidebarState\.hintSessionId/,
+      'the change detector must watch the address too, or a re-addressed offer never notifies',
+    )
+  })
+
+  test('offerSidebarHint records WHICH session asked for the hint', () => {
+    const offer = from(readClient(), 'function offerSidebarHint', 400)
+    assert.match(
+      offer,
+      /function offerSidebarHint\(sessionId\)/,
+      'the offer is addressed by argument',
+    )
+    assert.match(
+      offer,
+      /publishSidebar\(\{ hintWanted: true, hintSessionId: sessionId \}\)/,
+      'the address travels with the flag',
+    )
+  })
+
+  test('the paste path hands over the very session it resolved', () => {
+    assert.match(
+      readClient(),
+      /offerSidebarHint\(sessionId\)/,
+      'the offer must name the session the paste was saved for',
+    )
+  })
+
+  test('a slot claims an offer only when it is addressed to its own session', () => {
+    const src = readClient()
+    assert.match(
+      between(src, 'function SidebarHint(props)', 'function mountSidebarHint'),
+      /ownsSidebarHint\(/,
+      'the ownership verdict is consulted, never re-derived inline (the cyclomatic gate)',
+    )
+    const owner = from(src, 'function ownsSidebarHint', 700)
+    assert.match(owner, /if \(!hintWanted\) return false/, 'an absent offer is never claimed')
+    assert.match(
+      owner,
+      /String\(offeredSession\) === hintSessionId/,
+      'a foreign session must be refused — that refusal is the regression fix itself',
+    )
+  })
+
+  test('rendering the hint consumes the offer', () => {
+    const src = readClient()
+    const hint = between(src, 'function SidebarHint(props)', 'function mountSidebarHint')
+    assert.match(hint, /consumeSidebarHint\(\)/, 'the slot that rendered it takes it off the table')
+    assert.match(
+      hint,
+      /React\.useEffect/,
+      'from an effect — a render-time write is a side effect and runs twice under StrictMode',
+    )
+    assert.match(
+      from(src, 'function consumeSidebarHint', 300),
+      /publishSidebar\(\{ hintWanted: false, hintSessionId: null \}\)/,
+      'consuming clears both halves, so no later overlay finds an offer still standing',
+    )
+  })
+
+  test('the annotation outlives its own consumption without outliving its session', () => {
+    const hint = between(readClient(), 'function SidebarHint(props)', 'function mountSidebarHint')
+    assert.doesNotMatch(
+      hint,
+      /!hintWanted \|\| !open/,
+      'the page-wide flag must not be the render condition: consuming would blink the hint away',
+    )
+    assert.match(
+      hint,
+      /shownFor !== myKey/,
+      'a local latch (bound to the session key) keeps THIS annotation for THIS session',
+    )
+  })
+})
