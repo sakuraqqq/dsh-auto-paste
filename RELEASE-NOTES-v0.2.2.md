@@ -13,7 +13,8 @@ Fixes a one-shot hint that leaked into **every other conversation**.
 
 ## Engineering
 
-- **Test suite: 106 checks.** The six new guards were written **red first** (`106 tests, 6 fail`) and only then made green. They pin the address on the snapshot, the change detector that must watch it, the `offerSidebarHint(sessionId)` call site, the ownership refusal, the consumption, and the local latch that outlives it.
+- **Test suite: 107 checks.** The six new guards were written **red first** (`106 tests, 6 fail`) and only then made green. They pin the address on the snapshot, the change detector that must watch it, the `offerSidebarHint(sessionId)` call site, the ownership refusal, the consumption, and the local latch that outlives it.
+- **The guards were then audited for negative power, not just for passing.** An adversarial review measured three of them to be weaker than they read: the paste-path check was satisfied by the function's own definition line (vacuous), "from an effect" accepted any effect in the window, and the negative check rejected only one spelling of the regression. All three are re-anchored, and a runtime truth table now evaluates the ownership verdict itself — a source-text assertion can only see that some text is present, never whether the rule is right. Four real mutations (unconditional ownership, a call site that drops the session, the render guard reverted in the other order, the consume moved into the render body) are each caught by the guard that names them, after which the suite returns to 107/107.
 - Gate chain green: typecheck · eslint 0 · prettier 0 · privacy PASS · metrics 0 over-limit · smoke · artifacts rebuild byte-identically (`src/client.js` and `lib/client.js` share one SHA-256).
 - No change on the paste path itself: the model still receives the bare reference, and the chip is untouched.
 
