@@ -18,6 +18,11 @@ Fixes a one-shot hint that leaked into **every other conversation**.
 - Gate chain green: typecheck · eslint 0 · prettier 0 · privacy PASS · metrics 0 over-limit · smoke · artifacts rebuild byte-identically (`src/client.js` and `lib/client.js` share one SHA-256).
 - No change on the paste path itself: the model still receives the bare reference, and the chip is untouched.
 
+## Known limitations (found by the same review, not fixed here)
+
+- **The save toast has the same shape.** `toastList` is page-wide while `ToastHost` renders in the same per-conversation overlay, so a toast raised in session A floats above the composer of session B if you switch within its 2.6 s lifetime. It is transient and self-dismissing — unlike the one-shot hint — but it is the same class of bug, and this release does not fix it.
+- **dsh 0.1.5 has a narrow race.** That line hands the overlay no session identity at all, so a slot cannot tell whose offer it is, and the offer is consumed by whichever overlay renders first. The offer is raised only after `savePaste` and the chip insertion resolve, so switching conversations inside that window can still paint the hint in the wrong one. dsh 0.1.7 — the line 0.2.x targets — is unaffected: its slot props carry the session identity, which is exactly what `ownsSidebarHint` compares.
+
 ## Install
 
 ```bash
