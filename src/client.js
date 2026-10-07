@@ -95,16 +95,22 @@ window.__ModuleLoader__.load({
     }
 
     // What the sidebar surfaces re-render on: whether the optional integration was
-    // ever adopted, and whether the one-shot hint is currently wanted. ONE snapshot
-    // object, replaced only when a value really changes (a fresh object per render
-    // would make useSyncExternalStore loop forever).
-    let sidebarState = { adopted: false, hintWanted: false }
+    // ever adopted, whether the one-shot hint is currently wanted, and WHICH session
+    // that offer belongs to. ONE snapshot object, replaced only when a value really
+    // changes (a fresh object per render would make useSyncExternalStore loop forever).
+    //
+    // The address is not decoration: the composer overlay is rendered by EVERY
+    // conversation, so a page-wide `hintWanted` also painted the annotation in
+    // whichever session the user switched to next (reported from a phone,
+    // 2026-10-05). An offer now names ONE session, and is consumed by its slot.
+    let sidebarState = { adopted: false, hintWanted: false, hintSessionId: null }
     const sidebarListeners = new Set()
     const publishSidebar = (next) => {
       const merged = { ...sidebarState, ...next }
       if (
         merged.adopted === sidebarState.adopted &&
-        merged.hintWanted === sidebarState.hintWanted
+        merged.hintWanted === sidebarState.hintWanted &&
+        merged.hintSessionId === sidebarState.hintSessionId
       ) {
         return
       }
@@ -584,10 +590,48 @@ window.__ModuleLoader__.load({
       return !readSidebarHint()
     }
 
-    /** Raise the one-shot hint. The slot marks it seen once it actually renders. */
-    function offerSidebarHint() {
+    /**
+     * Raise the one-shot hint, ADDRESSED to the session whose paste raised it. The
+     * slot that matches the address marks it seen and consumes it (below).
+     */
+    function offerSidebarHint(sessionId) {
       if (!shouldOfferSidebarHint()) return
-      publishSidebar({ hintWanted: true })
+      publishSidebar({ hintWanted: true, hintSessionId: sessionId })
+    }
+
+    /**
+     * Take the standing offer back, once its slot has rendered it.
+     *
+     * Without this the page-wide flag outlives the conversation that raised it: the
+     * NEXT session's overlay finds `hintWanted` still true and paints the annotation
+     * there. Consuming is what makes the hint belong to one conversation instead of
+     * to the page.
+     */
+    function consumeSidebarHint() {
+      publishSidebar({ hintWanted: false, hintSessionId: null })
+    }
+
+    /**
+     * Does THIS slot instance own the offer? Extracted rather than inlined: every
+     * `&&`/`||` counts toward the cyclomatic gate in tools/metrics.mjs.
+     *
+     * An address missing on either side cannot discriminate — dsh 0.1.5 hands the
+     * overlay no session prop at all, and the offer is minted from the selection
+     * snapshot there — so those cases keep the old page-wide behavior rather than
+     * hiding the hint forever.
+     */
+    function ownsSidebarHint(hintWanted, hintSessionId, offeredSession) {
+      if (!hintWanted) return false
+      if (hintSessionId === null || offeredSession === undefined || offeredSession === null) {
+        return true
+      }
+      return String(offeredSession) === hintSessionId
+    }
+
+    /** A session identity in comparable form; null when the line hands none. */
+    function sessionKey(value) {
+      if (value === undefined || value === null) return null
+      return String(value)
     }
 
     /**
@@ -596,7 +640,10 @@ window.__ModuleLoader__.load({
      * whole, clicking previews the file), so this only says what is missing.
      */
     function SidebarHint(props) {
-      const { hintWanted } = React.useSyncExternalStore(subscribeSidebar, readSidebar)
+      const { hintWanted, hintSessionId } = React.useSyncExternalStore(
+        subscribeSidebar,
+        readSidebar,
+      )
       const [open, setOpen] = React.useState(false)
       // dsh 0.1.7 delivers the Session identity through these props; latch it for the
       // paste path (see slotSessionId). An effect, not a render-time write: render
@@ -613,14 +660,28 @@ window.__ModuleLoader__.load({
             ? null
             : { sessionId: slotSessionId, actions: offeredActions }
       }, [offeredSession, offeredActions])
+      // WHICH conversation this annotation is on screen for. A LOCAL latch, not a
+      // derived value: the offer is consumed the moment it renders (below), so the
+      // page-wide state can no longer answer "was this one mine?". `undefined` is the
+      // "never shown" sentinel, which is why a session-less slot keys to null.
+      const [shownFor, setShownFor] = React.useState(undefined)
+      // Ownership first: an offer addressed to ANOTHER conversation must render
+      // nothing here, however loudly the page-wide flag is set.
+      const mine = ownsSidebarHint(hintWanted, hintSessionId, offeredSession)
+      const myKey = sessionKey(offeredSession)
       // D1: showing it counts as seen. Latched inside an effect, never during render —
       // a render-time write is a side effect and would run twice under StrictMode.
       React.useEffect(() => {
-        if (!hintWanted) return
+        if (!mine) return
         markSidebarHintSeen()
+        setShownFor(myKey)
         setOpen(true)
-      }, [hintWanted])
-      if (!hintWanted || !open) return null
+        // Consumed AFTER the render that claimed it, and only by that render: a flag
+        // left standing for the next conversation is what leaked the hint there.
+        consumeSidebarHint()
+      }, [mine, myKey])
+      // The local latch — not the consumed flag — keeps this annotation on screen.
+      if (!open || shownFor !== myKey) return null
       return React.createElement(
         'div',
         { className: 'dsh-auto-paste-hint' },
@@ -1056,7 +1117,7 @@ window.__ModuleLoader__.load({
                 `[${PACKAGE}] saved paste (${result.chars} chars) -> ${result.path} as an atomic reference chip`,
               )
               showToast(`已保存为 ${result.path}（${result.chars} 字符）`)
-              offerSidebarHint()
+              offerSidebarHint(sessionId)
               return
             }
             // Fallback: plain draft text (older dsh lines, a busy composer, or a lost

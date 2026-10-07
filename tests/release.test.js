@@ -1626,3 +1626,159 @@ describe('release --tag self-check — proves it rejects the exact 0.1.6 failure
     assert.match(src, /function gitOk\(/, '必须用退出码判断的 gitOk helper')
   })
 })
+
+describe('0.2.2 — the one-shot hint is addressed to the session that raised it', () => {
+  const readClient = () => readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+  const from = (src, marker, span = 900) => {
+    const start = src.indexOf(marker)
+    assert.ok(start >= 0, `${marker} must exist in src/client.js`)
+    return src.slice(start, start + span)
+  }
+  // Whole-function window: a magic span would silently stop covering the tail of a
+  // function that grows, and a tail that falls out of the window reads as "passed".
+  const between = (src, startMarker, endMarker) => {
+    const start = src.indexOf(startMarker)
+    assert.ok(start >= 0, `${startMarker} must exist in src/client.js`)
+    const end = src.indexOf(endMarker, start)
+    assert.ok(end > start, `${endMarker} must follow ${startMarker}`)
+    return src.slice(start, end)
+  }
+
+  // The bug (reported from a phone, 2026-10-05): pasting a large chunk in ONE
+  // conversation raised a PAGE-WIDE `hintWanted`, so the annotation also painted
+  // above the composer of whichever session the user switched to next. The offer
+  // now names the session it belongs to, and the slot that renders it consumes it.
+  test('the sidebar snapshot carries the session an offer belongs to', () => {
+    const src = readClient()
+    assert.match(
+      src,
+      /let sidebarState = \{ adopted: false, hintWanted: false, hintSessionId: null \}/,
+      'the snapshot needs the address, not just the flag',
+    )
+    assert.match(
+      from(src, 'const publishSidebar = (next)', 500),
+      /merged\.hintSessionId === sidebarState\.hintSessionId/,
+      'the change detector must watch the address too, or a re-addressed offer never notifies',
+    )
+  })
+
+  test('offerSidebarHint records WHICH session asked for the hint', () => {
+    const offer = from(readClient(), 'function offerSidebarHint', 400)
+    assert.match(
+      offer,
+      /function offerSidebarHint\(sessionId\)/,
+      'the offer is addressed by argument',
+    )
+    assert.match(
+      offer,
+      /publishSidebar\(\{ hintWanted: true, hintSessionId: sessionId \}\)/,
+      'the address travels with the flag',
+    )
+  })
+
+  test('the paste path hands over the very session it resolved', () => {
+    // Scoped to the PASTE HANDLER on purpose. A bare search for
+    // `offerSidebarHint(sessionId)` is satisfied by the function's own DEFINITION
+    // line, so the first version of this assertion stayed green even with the call
+    // site reverted to `offerSidebarHint()` — a vacuous check (found by the
+    // 2026-10-07 adversarial review, which measured the call site 51k chars later).
+    const pastePath = between(
+      readClient(),
+      'const onPaste = (event) =>',
+      "document.addEventListener('paste'",
+    )
+    assert.match(
+      pastePath,
+      /offerSidebarHint\(sessionId\)/,
+      'the offer must name the session the paste was saved for',
+    )
+  })
+
+  test('a slot claims an offer only when it is addressed to its own session', () => {
+    const src = readClient()
+    assert.match(
+      between(src, 'function SidebarHint(props)', 'function mountSidebarHint'),
+      /ownsSidebarHint\(/,
+      'the ownership verdict is consulted, never re-derived inline (the cyclomatic gate)',
+    )
+    const owner = from(src, 'function ownsSidebarHint', 700)
+    assert.match(owner, /if \(!hintWanted\) return false/, 'an absent offer is never claimed')
+    assert.match(
+      owner,
+      /String\(offeredSession\) === hintSessionId/,
+      'a foreign session must be refused — that refusal is the regression fix itself',
+    )
+  })
+
+  test('rendering the hint consumes the offer', () => {
+    const src = readClient()
+    const hint = between(src, 'function SidebarHint(props)', 'function mountSidebarHint')
+    const consumeAt = hint.indexOf('consumeSidebarHint()')
+    assert.ok(consumeAt >= 0, 'the slot that rendered it takes it off the table')
+    // INSIDE an effect callback, and inside the SAME one. "React.useEffect appears
+    // somewhere in this window" was satisfied by the identity latch above, so a
+    // consume written into the render body passed that check too.
+    const effectAt = hint.lastIndexOf('React.useEffect(', consumeAt)
+    assert.ok(
+      effectAt >= 0,
+      'consumption must run from an effect — a render-time write runs twice under StrictMode',
+    )
+    assert.doesNotMatch(
+      hint.slice(effectAt, consumeAt),
+      /\}, \[/,
+      'and from the same effect callback: a consume after that callback closed is a render-body write',
+    )
+    assert.match(
+      from(src, 'function consumeSidebarHint', 300),
+      /publishSidebar\(\{ hintWanted: false, hintSessionId: null \}\)/,
+      'consuming clears both halves, so no later overlay finds an offer still standing',
+    )
+  })
+
+  test('the annotation outlives its own consumption without outliving its session', () => {
+    const hint = between(readClient(), 'function SidebarHint(props)', 'function mountSidebarHint')
+    // The flag must not appear in the early-return condition in ANY order: the
+    // first version only rejected the literal `!hintWanted || !open`, so the same
+    // regression rewritten as `!open || !hintWanted` sailed straight through.
+    assert.doesNotMatch(
+      hint,
+      /if \([^)]*hintWanted[^)]*\) return null/,
+      'the page-wide flag must not be the render condition: consuming would blink the hint away',
+    )
+    assert.match(
+      hint,
+      /if \(!open[^\n]*shownFor !== myKey\) return null/,
+      'the guard needs BOTH the local open latch and the session key — dropping either regresses',
+    )
+  })
+
+  // Every assertion above reads the SOURCE, so together they pin the shape but
+  // nothing that can fail at runtime — the adversarial review's sharpest point:
+  // `ownsSidebarHint` could be made to return true unconditionally while all of
+  // the text checks stayed green. The bundle is self-contained (no importable
+  // module), so the pure verdict is extracted and evaluated here: a truth table
+  // that goes red the moment the ownership rule regresses.
+  test('ownsSidebarHint answers the ownership truth table', () => {
+    const body = from(readClient(), 'function ownsSidebarHint', 700)
+    const close = body.indexOf('\n    }')
+    assert.ok(close > 0, 'the function must close at the module indentation level')
+    const verdict = new Function(
+      `${body.slice(0, close + '\n    }'.length)}; return ownsSidebarHint`,
+    )()
+    assert.equal(typeof verdict, 'function', 'the extracted text must evaluate to a function')
+    assert.equal(verdict(false, 'A', 'A'), false, 'no offer standing → nobody claims it')
+    assert.equal(verdict(true, 'A', 'A'), true, 'addressed to me → I claim it')
+    assert.equal(
+      verdict(true, 'A', 'B'),
+      false,
+      'addressed to ANOTHER session → refused (the regression)',
+    )
+    assert.equal(
+      verdict(true, 'A', undefined),
+      true,
+      'slot with no identity (0.1.5) → page-wide, as before',
+    )
+    assert.equal(verdict(true, null, 'B'), true, 'offer with no address → cannot discriminate')
+    assert.equal(verdict(true, '42', 42), true, 'branded ids compare as strings')
+  })
+})
