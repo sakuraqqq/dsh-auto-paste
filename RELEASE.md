@@ -134,6 +134,24 @@ npm publish                    # ⚠️ dist-tag 注意：README 记录过 @deep
 - [x] 测试 **100/100**（两条新守卫均**先红后绿**）；eslint / prettier / privacy / metrics 全绿；`dist/`+`lib/` 与源码逐字节一致（CI 同项亦绿）
 - [ ] 待办：新 profile 从 registry 复验；awesome-dsh-plugin 描述更新；better-sidebar **发版后**重测保存路线并撤掉 README 的 caveat（上游已在 `main` 修好、带 `fs-write-relative-path.spec`，但 latest 仍 0.24.1）
 
+### 0.2.2 发布记录（2026-10-08）
+
+修复「侧边栏一次性提示泄漏到其他会话」（手机实测上报）；测试 100 → 107，并补上**负例能力**验证。走与 0.2.0 / 0.2.1 相同的 CI 发布通道。
+
+- [x] 四个提交：修复 `2fd2a0a` → 测试加固 `b1d552e` → notes 修正 `bfd31c1` → 已知限制 `8e5d120`；PR [#10](https://github.com/sakuraqqq/dsh-auto-paste/pull/10) 合并提交 `f6adb4f`
+- [x] tag `v0.2.2` **指向合并提交 `f6adb4f`**（`--tag` 自查三项全过：在 main / 版本一致 / 未落后 origin）
+- [x] publish 工作流 **SUCCESS**（run [`37653466154`](https://github.com/sakuraqqq/dsh-auto-paste/actions/runs/37653466154)，`head_branch: v0.2.2`）
+- [x] npm 侧核验（拉真包复算，不只看 CI 结论）：`shasum=18341f32…` 与 registry 元数据**逐字一致**；10 文件；`unpackedSize=201919`；**SLSA provenance 已签名**
+- [x] 包内 `dist/client.js` 含全部修复符号（`hintSessionId` / `consumeSidebarHint` / `ownsSidebarHint`）；与工作区产物 `git diff --ignore-cr-at-eol` 逐字节一致（唯一差异是 Windows 检出的 CRLF vs CI 的 LF）
+- [x] GitHub Release：<https://github.com/sakuraqqq/dsh-auto-paste/releases/tag/v0.2.2>（notes 源 = `RELEASE-NOTES-v0.2.2.md`）
+- [x] **转正 `latest` = 0.2.2**（2026-10-08，CLI `dist-tag add`）—— 实测 `dist-tags = { latest: 0.2.2, next: 0.2.2 }`；转正后已删除本地 token（发版全走 OIDC，本地不留长期凭据）
+- [x] 测试 **107/107**；eslint / prettier / privacy / metrics 全绿；`dist/` + `lib/` 与源码一致
+- **发布前独立审查**（对抗性，第二个模型）结论：修复成立（无 blocker / high）。其指出的**三条断言缺陷在发布前修掉**（一条恒真、一条锚点过宽、一条负例过窄），并补了运行期真值表 + 四项变异验证（**4/4 被点名用例捕获**）。审查发现的两条**明确未修**项，已如实写入 `RELEASE-NOTES-v0.2.2.md` 的 Known limitations 与 `.私档/BACKLOG-0.1.5.md` §四
+- ⚠️ 本次两次踩坑（均为环境 / 账号侧，与代码无关）：
+  1. **首选 DNS 对单域名不应答**：列表第一台 `114.114.114.114` 对 `registry.npmjs.org` 返回**空应答**（同机对照：`www.baidu.com` 正常），而 Windows 采信首选、**不 fallback** 到能解析的备用服务器 ⇒ npm 报 `getaddrinfo ENOTFOUND`。修法：把首选换成列表里实测可用的那台（`Set-DnsClientServerAddress -InterfaceAlias WLAN -ServerAddresses …`）后 `Clear-DnsClientCache`
+  2. **CLI 转正 E401**：`~/.npmrc` 里旧的 bypass-2FA token 失效，且**覆盖交互登录态**（与 0.1.4 那次同款）。修法：`npm config delete '//registry.npmjs.org/:_authToken'` → `npm login` → `npm dist-tag add`
+- [ ] 待办：新 profile 从 registry 复验；awesome-dsh-plugin 描述更新；**手机端**实测这次修复
+
 
 ### 0.1.1 发布待办（2026-08-16 新增）
 
