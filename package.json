@@ -1,6 +1,6 @@
 {
   "name": "dsh-auto-paste",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "dsh-auto-paste — 长文粘贴不进消息：存成工作区文件，输入框只留一张引用卡片，模型只收到一行引用（要读再读）。A DeepSeek Harness plugin: a long paste becomes a workspace file plus one reference chip, so the wall of text never enters the message.",
   "repository": {
     "type": "git",
@@ -42,6 +42,17 @@
       "inject": [
         "sessions",
         "connection"
+      ]
+    },
+    "compatibility": {
+      "dsh": "^0.1.5-rc.1 || ^0.2.0-rc.2",
+      "dshReleases": {
+        "0.1.5-rc.2": "compatible",
+        "0.1.7-rc.2": "compatible",
+        "0.2.0-rc.2": "compatible"
+      },
+      "profiles": [
+        "web"
       ]
     }
   },
