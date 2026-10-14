@@ -48,7 +48,7 @@ const savePasteResult$schema = z.object({
 const getConfigResult$schema = z.object({
   minChars: z.number(),
   maxBytes: z.number(),
-  minCharsSource: z.string(),
+  minCharsSource: z.enum(['user', 'deployment']),
   deploymentMinChars: z.number(),
   canConfigure: z.boolean(),
 })

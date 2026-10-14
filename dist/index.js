@@ -13,7 +13,7 @@
 // Pure ESM ("type": "module"); @deepseek-ai/cordis is a peerDependency —
 // the host hands us `ctx` and the Service base class at runtime.
 //
-import { join, dirname, basename, relative } from 'node:path';
+import { join, dirname, basename, normalize, relative } from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 import z from '@deepseek-ai/schemastery';
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
@@ -138,19 +138,35 @@ export function readLiveValue(raw) {
     return raw;
 }
 /**
- * Read one namespace back through a settings service, or undefined when this
- * deployment cannot read it back at all.
+ * Read one namespace's USER LAYER back through a settings service, or undefined
+ * when this deployment cannot read it back at all.
  *
- * The service's mere presence proves nothing: dsh 0.1.7 keeps `SettingsForms`
- * but drops `get` (values are projected out of each plugin's own Config instead),
- * so calling it is a TypeError — measured, and it took `getConfig`, hence the web
- * client's whole config path, down with it.
+ * The service's mere presence proves nothing, and neither does its shape across
+ * lines — TWO LINES, TWO READ PATHS (measured: 0.1.5-rc.x vs 0.1.7-rc.2):
+ *   - 0.1.5 keeps `get(ns)`;
+ *   - 0.1.7 deleted it. The service projects each plugin's own Config into a form
+ *     instead, and the user's override appears as the raw section at
+ *     `descriptor.user` (an absent field = "user never overrode this").
+ * Probing only `get` left the 0.1.7 path unreachable, so the effective threshold
+ * silently reported `'deployment'` even right after a successful save — the row's
+ * "reset" button could never render and its copy never stopped saying the value
+ * came from the deployment. Hence both probes, in that order.
  */
 export function readSettings(service, ns) {
-    if (service === undefined || typeof service.get !== 'function')
+    if (service === undefined)
         return undefined;
-    const value = service.get(ns);
-    return typeof value === 'object' && value !== null ? value : undefined;
+    if (typeof service.get === 'function') {
+        const value = service.get(ns);
+        if (typeof value === 'object' && value !== null)
+            return value;
+    }
+    if (typeof service.describe === 'function') {
+        const row = service.describe().find((candidate) => candidate?.ns === ns);
+        const user = row?.user;
+        if (typeof user === 'object' && user !== null)
+            return user;
+    }
+    return undefined;
 }
 /**
  * Settings namespace this plugin owns (`settings.register` requires a lowercase
@@ -210,6 +226,12 @@ export function assertPasteSize(text, maxBytes = MAX_PASTE_BYTES) {
     }
 }
 /**
+ * How many `-n` suffixes to try before a name collision becomes an error the
+ * caller can report. Generous enough that no honest workload reaches it, finite
+ * so that a directory full of squatting names cannot turn a paste into a hang.
+ */
+export const MAX_COLLISION_ATTEMPTS = 1000;
+/**
  * Write one paste under `<workspaceDir>/pastes/<timestamp>[-<label>].txt`.
  * Pure standalone function — unit-testable without a booted harness.
  * Same-second collisions append `-<n>` AFTER the label (see the loop below).
@@ -225,8 +247,10 @@ export async function savePasteTo(workspaceDir, text, now = new Date(), maxBytes
     // Atomic exclusive create: EEXIST means another writer (concurrent
     // same-timestamp save, or an existing file) claimed this name first —
     // bump the -n suffix and retry. No check-then-write race window.
-    let target = base;
-    for (let n = 0;; n += 1) {
+    // BOUNDED on purpose: an unbounded retry turns "every candidate name is taken"
+    // into a hang instead of a failure the caller can surface.
+    let target;
+    for (let n = 0; n < MAX_COLLISION_ATTEMPTS; n += 1) {
         const candidate = n === 0 ? base : join(workspaceDir, 'pastes', `${basename(rel, '.txt')}-${n}.txt`);
         try {
             await writeFile(candidate, text, { flag: 'wx', mode: 0o600 });
@@ -237,6 +261,10 @@ export async function savePasteTo(workspaceDir, text, now = new Date(), maxBytes
             if (error.code !== 'EEXIST')
                 throw error;
         }
+    }
+    if (target === undefined) {
+        throw new Error(`paste: gave up after ${MAX_COLLISION_ATTEMPTS} name collisions for ${rel}; ` +
+            'remove or rename the squatters under pastes/ and retry');
     }
     return {
         path: relative(workspaceDir, target).split('\\').join('/'),
@@ -303,7 +331,12 @@ export function resolveWorkspaceDir(ctx, sessionId) {
 /** True when `dir` matches one of the registered workspace paths (platform-aware). */
 export function isRegisteredWorkspace(dir, workspaces) {
     const norm = (p) => {
-        const cleaned = p.replace(/[\\/]+$/, '').replace(/\\/g, '/');
+        // `normalize` FIRST, because identity must not depend on spelling: `ws/x`,
+        // `ws/./x`, `ws/sub/../x` and `ws//x` all name the same directory, and a
+        // legitimate paste would otherwise be refused as "not registered".
+        // Deliberately NOT `realpath`: that hits the filesystem on every call and
+        // would resolve symlinks, changing what "registered" means. Pure and cheap.
+        const cleaned = normalize(p).replace(/[\\/]+$/, '').replace(/\\/g, '/');
         return process.platform === 'win32' ? cleaned.toLowerCase() : cleaned;
     };
     const target = norm(dir);
@@ -381,7 +414,12 @@ class PasteStoreService extends TypertRemoteService {
         const settings = this.settings();
         if (typeof settings?.update !== 'function')
             return false;
-        return typeof settings.get === 'function' || schemaVolatileCapable;
+        // A READABLE user layer is what keeps the row honest: 0.1.5 reads it with
+        // `get`, 0.1.7+ projects it into `describe().user`. Declaring volatile alone
+        // only proves a write can land — a line that can store but never read back
+        // would render a save button whose value the plugin can never see.
+        const readable = typeof settings.get === 'function' || typeof settings.describe === 'function';
+        return readable && schemaVolatileCapable;
     }
     /** Build the wire payload the browser reads (and re-reads after every write). */
     config() {
@@ -432,6 +470,12 @@ class PasteStoreService extends TypertRemoteService {
         // would otherwise travel to a filesystem write. Refuse it by name.
         if (typeof text !== 'string') {
             throw new Error(`pasteStore.savePaste: text must be a string (got ${typeof text})`);
+        }
+        // Same guard for the other parameter. The comment above promises this service
+        // refuses anything a direct caller hands it, and `sessionId` travels just as
+        // far — into workspace routing, which decides WHERE the paste lands.
+        if (typeof sessionId !== 'string') {
+            throw new Error(`pasteStore.savePaste: sessionId must be a string (got ${typeof sessionId})`);
         }
         const dir = resolveWorkspaceDir(this.ctx, sessionId);
         if (dir === undefined)
@@ -539,7 +583,18 @@ export function apply(ctx, config = {}) {
                 // Folder name only — same privacy rule as workspaceRefusal above.
                 throw new Error(`save_paste: refusing to write outside a registered workspace (${basename(dir)})`);
             }
-            return publicPasteRef(await savePasteTo(dir, args.text, new Date(), maxBytes, args.label));
+            // Re-read the ceiling here instead of reusing the boot-time snapshot: on
+            // 0.1.7 a Settings write lands in this same `config` object while dsh keeps
+            // running, and the tool must enforce what the service enforces. An
+            // unreadable value falls back to the hard default (the boot line logs it).
+            let liveMaxBytes;
+            try {
+                liveMaxBytes = resolveMaxBytes(readLiveValue(config.maxBytes));
+            }
+            catch {
+                liveMaxBytes = MAX_PASTE_BYTES;
+            }
+            return publicPasteRef(await savePasteTo(dir, args.text, new Date(), liveMaxBytes, args.label));
         },
     }));
     // Self-check (spike-proven): confirm the tool actually landed in the registry.

@@ -5,9 +5,17 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readFileSync, mkdirSync, writeFileSync, cpSync, rmSync, mkdtempSync } from 'node:fs'
+import {
+  existsSync,
+  readFileSync,
+  mkdirSync,
+  writeFileSync,
+  cpSync,
+  rmSync,
+  mkdtempSync,
+} from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import {
   pasteFilename,
@@ -351,8 +359,10 @@ describe('static regression guards — past bugs must not resurrect', () => {
     assert.match(src, /minChars: z\.number\(\)/)
     assert.match(
       src,
-      /minCharsSource: z\.string\(\)/,
-      'getConfig must report where the effective value came from',
+      /minCharsSource: z\.enum\(\['user', 'deployment'\]\)/,
+      'getConfig must report where the effective value came from, as a CLOSED union: ' +
+        'z.string() let the union type evaporate at the wire boundary, so a typo in the ' +
+        "client's 'user' comparison would have compiled and failed silently",
     )
     assert.match(
       src,
@@ -1266,8 +1276,16 @@ describe('settings capability probes — dsh 0.1.7 dropped get/register (2026-09
     assert.match(src, /service\.get\(ns\)/, 'readSettings owns the single get call')
     assert.match(
       src,
-      /if \(service === undefined \|\| typeof service\.get !== 'function'\) return undefined/,
+      /if \(typeof service\.get === 'function'\) \{\s*const value = service\.get\(ns\)/,
       'guarded before it is called',
+    )
+    // 2026-10-14: the 0.1.7+ read path is the one that had gone missing — get() does
+    // not exist there, so the user layer was unreadable and every row said
+    // "deployment". Its probe gets the same treatment: describe is never assumed.
+    assert.match(
+      src,
+      /if \(typeof service\.describe === 'function'\) \{\s*const row = service\.describe\(\)/,
+      'the describe() read path must be probed too, not assumed present',
     )
   })
 
@@ -1284,8 +1302,14 @@ describe('settings capability probes — dsh 0.1.7 dropped get/register (2026-09
     )
     assert.match(
       src,
-      /return typeof settings\.get === 'function' \|\| schemaVolatileCapable/,
-      '0.1.5 proves the loop with get; 0.1.7 with a volatile field',
+      /const readable = typeof settings\.get === 'function' \|\| typeof settings\.describe === 'function'/,
+      '0.1.5 closes the loop with get; 0.1.7+ with describe().user — a line with NEITHER ' +
+        'can store a value that nothing can read back, so it must not offer to save one',
+    )
+    assert.match(
+      src,
+      /return readable && schemaVolatileCapable/,
+      'the volatile field is still what makes the 0.1.7 write land',
     )
     assert.doesNotMatch(
       src,
@@ -1780,5 +1804,193 @@ describe('0.2.2 — the one-shot hint is addressed to the session that raised it
     )
     assert.equal(verdict(true, null, 'B'), true, 'offer with no address → cannot discriminate')
     assert.equal(verdict(true, '42', 42), true, 'branded ids compare as strings')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-10-14 · 独立审查（手机侧）—— 10 条缺陷，先红后绿
+//
+// 下面每一条都源自一份「先红」红例：它们先在 v0.2.3（HEAD bb27a15）上跑成
+// 3 fail（D1–D3）+ 7 fail（HD4a/HD4b/HD5–HD9），然后才修。收在这里是为了让
+// 这些缺陷回不来 —— 回归守卫唯一的作用就是这个。
+//
+// 相对红例原文只有两处改动（断言逐字未动）：
+//   · 原文经 `<repo>/仓/dsh-auto-paste/` 读源码；这里改读本包自己的 `src/`。
+//   · HD4b 是**行为探针**：它 import 已构建的宿主，再喂给 `readSettings` 一个
+//     dsh 0.1.7+ 形状的服务（无 `get`、有 `describe`）。因此它需要一次构建；
+//     `dist/index.js` 不存在时它**跳过**，而不是悄悄通过。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('独立审查 2026-10-14 — 十项缺陷不得复活（先红后绿）', () => {
+  const readClientSrc = () => readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+  const readHostSrc = () => readFileSync(join(PKG_ROOT, 'src', 'index.ts'), 'utf8')
+  const readTypertSrc = () => readFileSync(join(PKG_ROOT, 'src', 'typert.host.ts'), 'utf8')
+
+  // ── D1 ────────────────────────────────────────────────────────────────────
+  // 现象：保存成功 + 卡片已插入后，若成功分支里的后续步骤（showToast /
+  //       offerSidebarHint / 其监听器）抛异常，外层 `.catch` 会把它当成
+  //       「保存失败」⇒ 再插一遍原文 ⇒ 输入框里卡片与全文并存。
+  test('D1 — 成功分支自兜异常（或外层 catch 带守卫），否则会重复插入原文', () => {
+    const src = readClientSrc()
+    const start = src.indexOf('.then(async (result) =>')
+    assert.ok(start >= 0, 'onPaste 的成功分支必须存在')
+    const catchIdx = src.indexOf('.catch((error) =>', start)
+    assert.ok(catchIdx > start, '外层 catch 必须存在')
+
+    const successBody = src.slice(start, catchIdx)
+    const catchBody = src.slice(catchIdx, catchIdx + 700)
+
+    const hasInnerTry = /try\s*\{/.test(successBody)
+    const hasGuard = /if\s*\(\s*!?\s*(saved|saveFailed|settled|saveOk)\b/.test(catchBody)
+
+    assert.ok(
+      hasInnerTry || hasGuard,
+      '成功分支既未自兜异常、外层 catch 也无守卫 ⇒ 成功路径的异常会触发「重插原文」⇒ 卡片与全文重复',
+    )
+  })
+
+  // ── D2 ────────────────────────────────────────────────────────────────────
+  // 现象：insertReferenceChip 里 await serializeReference(...) 无超时。该 await
+  //       永不 settle 时，.then 既不成功也不失败；而 preventDefault 已在前面执行
+  //       ⇒ 输入框里什么都没有，也没有任何提示（用户以为粘贴丢了）。
+  test('D2 — serializeReference 必须带超时（Promise.race / abort 定时器 / 超时常量）', () => {
+    const src = readClientSrc()
+    const start = src.indexOf('async function insertReferenceChip')
+    assert.ok(start >= 0, 'insertReferenceChip 必须存在')
+    const body = src.slice(start, start + 2000)
+
+    assert.match(
+      body,
+      /Promise\.race\(|setTimeout\([^)]*abort|SERIALIZE_TIMEOUT_MS/,
+      'serializeReference 的 await 没有任何超时保护 ⇒ 该调用挂起时粘贴会静默落空',
+    )
+  })
+
+  // ── D3 ────────────────────────────────────────────────────────────────────
+  // 现象：composerInsertion 返回 null（插槽未挂载 / 会话不匹配）时静默 return
+  //       false，不抛错也不打日志 ⇒ 线上表现为「卡片静默失效」。
+  test('D3 — composerInsertion 落空时必须留下可诊断的日志', () => {
+    const src = readClientSrc()
+    const ci = src.indexOf('function composerInsertion')
+    assert.ok(ci >= 0, 'composerInsertion 必须存在')
+    const ciBody = src.slice(ci, ci + 700)
+
+    const ir = src.indexOf('async function insertReferenceChip')
+    assert.ok(ir >= 0, 'insertReferenceChip 必须存在')
+    const irHead = src.slice(ir, ir + 400)
+
+    assert.ok(
+      /console\.warn/.test(ciBody) || /console\.warn/.test(irHead),
+      'composerInsertion 落空路径无任何日志 ⇒ 卡片静默失效时不可诊断',
+    )
+  })
+
+  // ── HD4a ──────────────────────────────────────────────────────────────────
+  // 现象（本机实测坐实）：dsh 0.1.7+/0.2.x 的 settings 服务全原型链**无 get**
+  //   ⇒ readSettings() 恒返回 undefined ⇒ effectiveMinChars 的 source 恒为
+  //   'deployment' ⇒「恢复默认」按钮永不出现 + 提示语永远说「跟随部署默认值」。
+  test('HD4a — 用户层读回必须有 get 之外的第二条路径（describe / configEditor）', () => {
+    const src = readHostSrc()
+    const start = src.indexOf('export function readSettings')
+    assert.ok(start >= 0, 'readSettings 必须存在')
+    const body = src.slice(start, start + 900)
+    assert.match(
+      body,
+      /describe\(|configEditor/,
+      'readSettings 只探测 get；而 0.1.7+/0.2.x 的 settings 服务没有 get ⇒ 用户层永远读不回、source 恒为 deployment',
+    )
+  })
+
+  // ── HD4b（行为探针）─────────────────────────────────────────────────────────
+  test('HD4b — 无 get、有 describe 的真实宿主形状下，readSettings 必须读回用户层', async (t) => {
+    const index = join(PKG_ROOT, 'dist', 'index.js')
+    if (!existsSync(index)) {
+      t.skip('dist/index.js 不存在（未构建）—— 行为探针跳过；静态守卫 HD4a 覆盖同一性质')
+      return
+    }
+    const plugin = await import(pathToFileURL(index).href)
+    assert.equal(typeof plugin.readSettings, 'function', 'readSettings 必须是导出函数')
+    const service = {
+      update: async () => {},
+      mutate: async () => {},
+      describe: () => [
+        {
+          ns: 'dsh-auto-paste',
+          user: { minChars: 800 },
+          base: { minChars: 500 },
+          value: { minChars: 800 },
+        },
+      ],
+    }
+    const got = plugin.readSettings(service, 'dsh-auto-paste')
+    assert.notEqual(
+      got,
+      undefined,
+      '无 get 的线上 readSettings 恒为 undefined ⇒ source 永远是 deployment',
+    )
+    assert.equal(got.minChars, 800, '必须读到用户层实际存的值')
+  })
+
+  // ── HD5 ───────────────────────────────────────────────────────────────────
+  test('HD5 — minCharsSource 的 wire 契约不得退化为任意字符串', () => {
+    const src = readTypertSrc()
+    assert.doesNotMatch(
+      src,
+      /minCharsSource:\s*z\.string\(\)/,
+      "minCharsSource 必须收窄为字面量联合/枚举（如 z.enum(['user','deployment'])），否则联合类型在边界上失效",
+    )
+  })
+
+  // ── HD6 ───────────────────────────────────────────────────────────────────
+  // 现象：apply() 的注释自述「这两个 local 只是 boot 期报告，服务侧每次重读
+  //       config」，但 save_paste 工具的 execute 把 boot 快照 maxBytes 传给了
+  //       savePasteTo ⇒ 注释与代码不一致。
+  test('HD6 — save_paste 工具不得用 boot 快照的 maxBytes（须与服务同口径重读）', () => {
+    const src = readHostSrc()
+    const start = src.indexOf('async execute(args:')
+    assert.ok(start >= 0, '工具的 execute 必须存在')
+    const body = src.slice(start, start + 1800)
+    assert.doesNotMatch(
+      body,
+      /savePasteTo\(dir,\s*args\.text,\s*new Date\(\),\s*maxBytes/,
+      '工具用的是 apply() 的 boot 快照 maxBytes，而服务侧每次重读 ⇒ 两处口径不同（注释还宣称只有服务侧生效）',
+    )
+  })
+
+  // ── HD7 ───────────────────────────────────────────────────────────────────
+  test('HD7 — savePaste 必须同口径守卫 sessionId（不只 text）', () => {
+    const src = readHostSrc()
+    const start = src.indexOf('async savePaste(text: string, sessionId: string)')
+    assert.ok(start >= 0, 'savePaste 必须存在')
+    const body = src.slice(start, start + 1100)
+    assert.match(
+      body,
+      /typeof sessionId !== 'string'/,
+      '只守卫 text 不守卫 sessionId ⇒ 与注释宣称的「公开服务、直接调用者可传任何值」口径不一致',
+    )
+  })
+
+  // ── HD8 ───────────────────────────────────────────────────────────────────
+  test('HD8 — 同名撞车重试循环必须有上界', () => {
+    const src = readHostSrc()
+    assert.doesNotMatch(
+      src,
+      /for \(let n = 0; ; n \+= 1\)/,
+      '无界重试循环：应改为带上界（如 n < MAX_COLLISION_ATTEMPTS）并在超限时抛错',
+    )
+  })
+
+  // ── HD9 ───────────────────────────────────────────────────────────────────
+  // 现象：isRegisteredWorkspace 只做「去尾斜杠 + 反斜杠转正斜杠 + win32 小写」，
+  //       不解析 `.` / `..` ⇒ header.cwd 与注册路径写法不同即**误拒**。
+  test('HD9 — isRegisteredWorkspace 必须做路径归一化（normalize / realpath）', () => {
+    const src = readHostSrc()
+    const start = src.indexOf('export function isRegisteredWorkspace')
+    assert.ok(start >= 0, 'isRegisteredWorkspace 必须存在')
+    const body = src.slice(start, start + 800)
+    assert.match(
+      body,
+      /realpath|normalize\(/,
+      '未归一化 `.`/`..` ⇒ 同一目录的不同写法会被误判为「未注册」',
+    )
   })
 })
