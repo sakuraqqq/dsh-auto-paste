@@ -5,7 +5,7 @@
 
 ## 0. 背景
 
-`dsh-auto-paste` 是 DeepSeek Harness (dsh) 插件：在 Web 输入框粘贴大段文本（阈值默认 500 字符）时，自动保存为工作区 `pastes/<时间戳>.txt` 并在消息里引用路径；另有 `save_paste` 工具兜底。当前版本 0.1.0，dsh 0.1.0-rc.6。
+`dsh-auto-paste` 是 DeepSeek Harness (dsh) 插件：在 Web 输入框粘贴大段文本（阈值默认 500 字符）时，自动保存为工作区 `pastes/<时间戳>.txt` 并在消息里引用路径；另有 `save_paste` 工具兜底。当前版本 **0.2.4**，主环境 dsh **0.1.7-rc.2**（桌面版是另一条线，如 `0.2.0-rc.2`）。
 
 ## 1. 环境信息（按实际路径替换）
 
@@ -25,7 +25,7 @@
 1. `npm run typecheck` → exit 0
 2. `npm run build` → exit 0，dist/ 更新
 3. `node smoke.mjs` → 输出 SMOKE-OK
-4. `npm test` → 全部 pass（应有 18 项；沙箱拦子进程时加 `--test-isolation=none`）
+4. `npm test` → 全部 pass（应有 **117** 项；沙箱拦子进程时加 `--test-isolation=none`）
 任一步失败即 bug，记录错误信息。
 
 ### 阶段 C：独立 profile 实测（能做则做）
@@ -54,7 +54,7 @@
 ## 3. 报告格式（完成时输出）
 
 ```
-【测试报告 dsh-auto-paste v0.1.0】
+【测试报告 dsh-auto-paste v0.2.4】
 A 静态体检: PASS/WARN/REJECT + 细节
 B 构建测试: typecheck/build/smoke/release 各自结果
 C GUI 实测: 通过/跳过 + 现象
