@@ -1,6 +1,8 @@
 # dsh-auto-paste 发布检查清单（Release Checklist）
 
-> 状态：E2E 已通过（2026-08-15）；许可切换 ✅（2026-08-16）；**0.1.4 已转正 `latest`**（2026-09-15，线上实测 `{"latest":"0.1.4","next":"0.1.4"}`）；GitHub Release `v0.1.4` 已标 `Latest`。
+> 状态：E2E 已通过（2026-08-15）；许可切换 ✅（2026-08-16）；**0.2.4 已发布**（2026-10-14，dist-tag `next`；十项独立审查缺陷修复）。
+> 当前线上：`latest = 0.2.2` / `next = 0.2.4`（逐版本记录见下方各「发布记录」小节）。
+> 历史：0.1.4 于 2026-09-15 转正 `latest`（线上实测 `{"latest":"0.1.4","next":"0.1.4"}`）；GitHub Release `v0.1.4` 已标 `Latest`。
 > 提交链：47ad2d8 → 3a832c3 → aa59f46 → 343cbf6 → 25c4a2a → db4333b（许可切换 MIT）→ e4e8b1f（记录 v0.1.0 发布）
 > 发布标准：**全自动 E2E 通过**。半自动方案（save_paste 兜底）不发布。
 > **已发布**：dsh-auto-paste@0.1.0（2026-08-16，官方源 registry.npmjs.org，dist-tag `next`，GitHub 源仓库 https://github.com/sakuraqqq/dsh-auto-paste tag v0.1.0）。
@@ -151,6 +153,37 @@ npm publish                    # ⚠️ dist-tag 注意：README 记录过 @deep
   1. **首选 DNS 对单域名不应答**：列表第一台 `114.114.114.114` 对 `registry.npmjs.org` 返回**空应答**（同机对照：`www.baidu.com` 正常），而 Windows 采信首选、**不 fallback** 到能解析的备用服务器 ⇒ npm 报 `getaddrinfo ENOTFOUND`。修法：把首选换成列表里实测可用的那台（`Set-DnsClientServerAddress -InterfaceAlias WLAN -ServerAddresses …`）后 `Clear-DnsClientCache`
   2. **CLI 转正 E401**：`~/.npmrc` 里旧的 bypass-2FA token 失效，且**覆盖交互登录态**（与 0.1.4 那次同款）。修法：`npm config delete '//registry.npmjs.org/:_authToken'` → `npm login` → `npm dist-tag add`
 - [ ] 待办：新 profile 从 registry 复验；awesome-dsh-plugin 描述更新；**手机端**实测这次修复
+
+
+### 0.2.3 发布记录（2026-10-09）
+
+补上 DSH STORE 要读的 `dsh.compatibility` 声明。条目被 `unlisted` 的原因是「最新三个 DSH 版本都没有 compatible 记录」，而 manifest 里从来没有这个块，所以无从读取。**无运行行为变化。**
+
+- [x] 两个提交：兼容声明 `a75dcc1` → notes `7866e69`；PR [#12](https://github.com/sakuraqqq/dsh-auto-paste/pull/12) 合并提交 `bb27a15`
+- [x] tag `v0.2.3` **指向合并提交 `bb27a15`**（`--tag` 自查三项全过）
+- [x] publish 工作流 **SUCCESS**（run [`37866079279`](https://github.com/sakuraqqq/dsh-auto-paste/actions/runs/37866079279)，`head_branch: v0.2.3`）
+- [x] npm 侧核验（拉 registry 元数据，不只看 CI 结论）：`gitHead=bb27a15…`；`fileCount=10`；`unpackedSize=202173`；**SLSA provenance 已签名**；`dsh.compatibility` 确实在包里
+- [x] GitHub Release：<https://github.com/sakuraqqq/dsh-auto-paste/releases/tag/v0.2.3>（notes 源 = `RELEASE-NOTES-v0.2.3.md`）
+- [x] 测试 **107/107**
+- ⚠️ **有意未转正 `latest`**：商店读的是 git 里的 manifest，不读 dist-tag，所以 0.2.2 留在 `latest` 不影响任何事
+- ⚠️ 本次踩坑（0.2.2 那条 DNS 记录的延伸版）：首选 DNS 不应答之外，**本机还有一层 DNS 接管** —— 解析 `registry.npmjs.org` 会拿到一个不提供 npm registry 的地址，表现为 `npm view` 长时间挂起（TCP 能连、TLS 谈不拢）。修法：在 hosts 里钉 `104.16.0.34 registry.npmjs.org`（hosts 优先级高于任何 DNS 接管）；WSL 里要单独再钉一次（它有自己的 `/etc/hosts`）
+- ⚠️ 另记：DSH STORE 的条目仍 `unlisted`，且 pin 在历史重写前的提交 `69b8c6b…`（该提交已不存在）⇒ 已按它的投稿流程重新提交（issue #1373，预检已通过）
+
+### 0.2.4 发布记录（2026-10-14）
+
+十项缺陷修复（外部独立审查产出，**全部先红后绿**）；测试 107 → **117**。
+
+- [x] 修复提交 `a066146`（10 条 + 红例并入 + 3 条断言更新 + 门禁脚本注释清理）；PR [#13](https://github.com/sakuraqqq/dsh-auto-paste/pull/13) 合并提交 `9f27f39`
+- [x] notes 提交 `c0775d5`；PR [#14](https://github.com/sakuraqqq/dsh-auto-paste/pull/14) 合并提交 `5fab0ff`
+- [x] tag `v0.2.4` **指向合并提交 `5fab0ff`**（`--tag` 自查三项全过：在 main / 版本一致 / 未落后 origin）
+- [x] publish 工作流 **SUCCESS**（run [`38580473975`](https://github.com/sakuraqqq/dsh-auto-paste/actions/runs/38580473975)，`head_branch: v0.2.4`，37 秒）
+- [x] npm 侧核验：`gitHead=5fab0ff…`；`shasum=360ab2eb…`；`fileCount=10`；`unpackedSize=215133`（与本地 `pack --dry-run` 逐字一致）；**SLSA provenance 已签名**；OIDC trusted publisher
+- [x] GitHub Release：<https://github.com/sakuraqqq/dsh-auto-paste/releases/tag/v0.2.4>（notes 源 = `RELEASE-NOTES-v0.2.4.md`）
+- [x] 测试 **117/117**（其中新增 10 条守卫：D1–D3 + HD4a/HD4b/HD5–HD9）；eslint / prettier / privacy / metrics 全绿
+- [x] 全程四次 push（修复分支 / release 分支 / tag）**均经 pre-push 隐私门禁**通过 —— 该门禁已装为 `core.hooksPath = .githooks`
+- ⚠️ **改断言说明**：3 条既有断言固定的是**被修掉的旧形状**（`minCharsSource: z.string()` / 单路径探测 / 旧 `canConfigure`），按原意就地更新；同时给新增的 `describe()` 读路径补了同等的「先探测再调用」断言，纪律覆盖两条路径
+- ⚠️ **有意未转正 `latest`**（同 0.2.3 处置）：当前 `latest = 0.2.2` / `next = 0.2.4`
+- [ ] 待办：商店条目状态复看（等它那轮八小时扫描看到新 commit `5fab0ff`）
 
 
 ### 0.1.1 发布待办（2026-08-16 新增）
