@@ -148,7 +148,7 @@ npm publish                    # ⚠️ dist-tag 注意：README 记录过 @deep
 - [x] GitHub Release：<https://github.com/sakuraqqq/dsh-auto-paste/releases/tag/v0.2.2>（notes 源 = `RELEASE-NOTES-v0.2.2.md`）
 - [x] **转正 `latest` = 0.2.2**（2026-10-08，CLI `dist-tag add`）—— 实测 `dist-tags = { latest: 0.2.2, next: 0.2.2 }`；转正后已删除本地 token（发版全走 OIDC，本地不留长期凭据）
 - [x] 测试 **107/107**；eslint / prettier / privacy / metrics 全绿；`dist/` + `lib/` 与源码一致
-- **发布前独立审查**（对抗性，第二个模型）结论：修复成立（无 blocker / high）。其指出的**三条断言缺陷在发布前修掉**（一条恒真、一条锚点过宽、一条负例过窄），并补了运行期真值表 + 四项变异验证（**4/4 被点名用例捕获**）。审查发现的两条**明确未修**项，已如实写入 `RELEASE-NOTES-v0.2.2.md` 的 Known limitations 与 `.私档/BACKLOG-0.1.5.md` §四
+- **发布前独立审查**（对抗性，第二个模型）结论：修复成立（无 blocker / high）。其指出的**三条断言缺陷在发布前修掉**（一条恒真、一条锚点过宽、一条负例过窄），并补了运行期真值表 + 四项变异验证（**4/4 被点名用例捕获**）。审查发现的两条**明确未修**项，已如实写入 `RELEASE-NOTES-v0.2.2.md` 的 Known limitations 与 `.私档/BACKLOG-0.1.5.md` §七（该节原编号为「四」，2026-10-14 因与「四、dsh 0.1.7 兼容线」重号而改）
 - ⚠️ 本次两次踩坑（均为环境 / 账号侧，与代码无关）：
   1. **首选 DNS 对单域名不应答**：列表第一台 `114.114.114.114` 对 `registry.npmjs.org` 返回**空应答**（同机对照：`www.baidu.com` 正常），而 Windows 采信首选、**不 fallback** 到能解析的备用服务器 ⇒ npm 报 `getaddrinfo ENOTFOUND`。修法：把首选换成列表里实测可用的那台（`Set-DnsClientServerAddress -InterfaceAlias WLAN -ServerAddresses …`）后 `Clear-DnsClientCache`
   2. **CLI 转正 E401**：`~/.npmrc` 里旧的 bypass-2FA token 失效，且**覆盖交互登录态**（与 0.1.4 那次同款）。修法：`npm config delete '//registry.npmjs.org/:_authToken'` → `npm login` → `npm dist-tag add`

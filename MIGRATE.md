@@ -13,9 +13,11 @@
 
 ## 当前状态
 
-- dsh 已全局安装，插件处于观察期
-- npm：`dsh-auto-paste@0.1.3`（latest）/ `0.1.3`（next）；**0.1.4 待发布**（2026-09-13 核）
-- 上架：PR #1688（awesome-dsh-plugin）—— 合并状态待核（2026-09-13）
+> ⚠️ 本段最后一次核对：**2026-10-14**。上一节（迁移事实）不变；这里回答"迁移过来的这个项目现在怎么样了"。
+
+- dsh 已全局安装；插件已发布到 **0.2.4**（2026-10-14，dist-tag `next`）—— 发行台账与逐版本记录见 `RELEASE.md`
+- npm：`latest = 0.2.2` / `next = 0.2.4`。0.2.3 与 0.2.4 都**有意未转正** `latest`：商店读的是 git 里的 manifest，不读 dist-tag
+- 上架：DSH STORE 条目目前 `unlisted`（`DSH_LATEST_THREE_COMPATIBILITY_HOLD`，且 pin 在历史重写前的提交上）⇒ 已按其投稿流程重新提交（issue #1373），**预检通过**；`awesome-dsh-plugin` 那条 PR 的状态**自 2026-09-13 起未再复核**
 - 旧目录已冻结：不再写入，仅留档
 
 ## 迁移后待办
@@ -23,7 +25,7 @@
 - [x] 新目录 `pnpm install`（2026-08-22 完成，21 包，typecheck/build/test 18/18 全绿）
 - [x] 新目录 git safe.directory 白名单（2026-08-22 已加）
 - [ ] 观察期汇总（RELEASE.md 第 0 节四项）
-- [ ] PR #1688 合并后同步状态
+- [ ] PR #1688 合并后同步状态 —— ⚠️ 自 2026-09-13 起未复核
 
 ## 来源说明
 
