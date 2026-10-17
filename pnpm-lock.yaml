@@ -7,10 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.2
@@ -54,6 +50,9 @@ importers:
       typescript:
         specifier: ^5.6.0
         version: 5.6.2
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
 packages:
 
