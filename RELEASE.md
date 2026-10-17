@@ -1,7 +1,7 @@
 # dsh-auto-paste 发布检查清单（Release Checklist）
 
-> 状态：E2E 已通过（2026-08-15）；许可切换 ✅（2026-08-16）；**0.2.4 已发布**（2026-10-14，dist-tag `next`；十项独立审查缺陷修复）。
-> 当前线上：`latest = 0.2.2` / `next = 0.2.4`（逐版本记录见下方各「发布记录」小节）。
+> 状态：E2E 已通过（2026-08-15）；许可切换 ✅（2026-08-16）；**0.3.0 已发布**（2026-10-17，dist-tag `next`；**运行时依赖归零** · zod 内联进 bundle + 两项复核缺陷修复）。
+> 当前线上：`latest = 0.2.2` / `next = 0.3.0`（逐版本记录见下方各「发布记录」小节）。
 > 历史：0.1.4 于 2026-09-15 转正 `latest`（线上实测 `{"latest":"0.1.4","next":"0.1.4"}`）；GitHub Release `v0.1.4` 已标 `Latest`。
 > 提交链：47ad2d8 → 3a832c3 → aa59f46 → 343cbf6 → 25c4a2a → db4333b（许可切换 MIT）→ e4e8b1f（记录 v0.1.0 发布）
 > 发布标准：**全自动 E2E 通过**。半自动方案（save_paste 兜底）不发布。
@@ -184,6 +184,26 @@ npm publish                    # ⚠️ dist-tag 注意：README 记录过 @deep
 - ⚠️ **改断言说明**：3 条既有断言固定的是**被修掉的旧形状**（`minCharsSource: z.string()` / 单路径探测 / 旧 `canConfigure`），按原意就地更新；同时给新增的 `describe()` 读路径补了同等的「先探测再调用」断言，纪律覆盖两条路径
 - ⚠️ **有意未转正 `latest`**（同 0.2.3 处置）：当前 `latest = 0.2.2` / `next = 0.2.4`
 - [ ] 待办：商店条目状态复看（等它那轮八小时扫描看到新 commit `5fab0ff`）
+
+
+### 0.3.0 发布记录（2026-10-17）
+
+**运行时依赖归零** —— zod 内联进 bundle，`dependencies` 从 manifest 中彻底消失；外加两项复核缺陷修复。测试保持 117。
+
+- [x] 修复+改造提交 `2548be7`（R1/R2 + bundle 化 + 依赖清零 + 兼容声明），PR [#17](https://github.com/sakuraqqq/dsh-auto-paste/pull/17)
+- [x] lockfile 同步提交 `0f43ee3` —— CI 首轮红在 `ERR_PNPM_OUTDATED_LOCKFILE`：删了 `dependencies.zod` 却没同步 lock（我漏了；`pnpm install` 在 agent 沙箱里跑不了）。修法 `pnpm install --lockfile-only`，只改 lock 不动 `node_modules`
+- [x] PR #17 合并提交 `0527542`
+- [x] tag `v0.3.0` **指向合并提交 `0527542`**（`--tag` 自查三项全过：在 main / 版本一致 / 未落后 origin）
+- [x] publish 工作流 **SUCCESS**（run [`39011280029`](https://github.com/sakuraqqq/dsh-auto-paste/actions/runs/39011280029)，`head_branch: v0.3.0`，36 秒）
+- [x] npm 侧核验：`gitHead=0527542…`；`shasum=a5c03a06…`；**`fileCount=11`**（+`THIRD_PARTY_NOTICES.md`）；`unpackedSize=747667`（与 `pack --dry-run` 逐字一致）；**registry 元数据里 `dependencies` 字段完全不存在**；**SLSA provenance 已签名**；OIDC trusted publisher
+- [x] GitHub Release：<https://github.com/sakuraqqq/dsh-auto-paste/releases/tag/v0.3.0>（notes 源 = `RELEASE-NOTES-v0.3.0.md`）
+- [x] 测试 **117/117**；eslint / prettier / privacy / metrics 全绿（privacy 报 11 files ship）
+- ⭐ **为什么升 minor**：依赖形态变了（`dependencies` 从有到无、产物从 tsc 单文件变成 bundle 单文件）——0.x 语义下该走 minor，不是 patch
+- ⭐ **为什么内联而不是精确 pin**：DSH STORE 的 `automaticApproval.allowRuntimeDependencies` 为 `false`，且目录里 **27/27 个已上架插件都没有声明任何 `dependencies`**。精确 pin 解决不了 —— 它反对的是**依赖边本身**，不是版本范围
+- ⚠️ **许可合规交代**：`THIRD_PARTY_NOTICES.md` 载 zod 完整 MIT 全文；`scripts/bundle.mjs` 在 `dist/typert.host.js` 顶部发 `banner` 带版权行 —— esbuild 的 `legalComments` 抓不到 zod 的声明，因为它的源文件用普通 `//` 注释而非 `/*! … */`
+- ⚠️ **顺带纠正一处旧判断**：`^0.2.0-rc.2` **本来就覆盖** `0.2.1-alpha.5` —— dsh 校验 peer 时带 `includePrerelease`（`README.md:105` 早就写着，我此前按标准 semver 推断为不覆盖，是错的）
+- ⚠️ **有意未转正 `latest`**（同 0.2.3/0.2.4 处置）：当前 `latest = 0.2.2` / `next = 0.3.0`
+- [ ] 待办：商店条目状态复看 —— 等下一轮扫描读到 `0527542`。SUPPLY001 与 COMPAT001 的解除条件都已满足，但**按它第 13 条联系规则不能主动再发消息**（一个人只有一次初始联系名额，已用掉）
 
 
 ### 0.1.1 发布待办（2026-08-16 新增）
