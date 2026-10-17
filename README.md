@@ -45,7 +45,9 @@ MIT License — Copyright (c) 2026 misakamaster。
 因此：
 
 - **没装时**：第一次粘贴出卡片后会**就地说明一次**（一行提示，可关闭，关掉后不再出现）；万一错过了，设置页 General 分区的「侧栏集成」一行会一直写着，装上后自动消失。
-- ⚠️ **已知上游缺陷**：better-sidebar 的编辑器保存时用的是**工作区相对路径**，而它的写接口要求绝对路径 ⇒ 直接保存会 400（`is not an absolute path`）。这是上游 [omdsh-dev/DSH-better-sidebar#646](https://github.com/omdsh-dev/DSH-better-sidebar/issues/646)，**与本插件无关**；在它修好之前，从**它的文件树/路径输入框**打开同一文件即可正常保存（那条路会用绝对路径）。
+- ⚠️ **版本要求：`dsh-better-sidebar` ≥ 0.28.0**。更早的版本里，侧栏编辑器保存时会用**工作区相对路径**，而它的写接口只接受绝对路径 ⇒ 保存报 400（`is not an absolute path`，host 侧校验在 `lib/index.js` 的 `if (!isAbsolute(path)) throw …`）。那是上游 [omdsh-dev/DSH-better-sidebar#646](https://github.com/omdsh-dev/DSH-better-sidebar/issues/646)（**本插件无关**，已于 2026-10-04 修复）。
+  - **0.28.0 实测可正常保存**（2026-10-17，桌面版）。
+  - 若暂时无法升级，两条替代路径：从 **better-sidebar 自己的文件树 / 路径输入框**打开同一文件再保存（那条路会传绝对路径）；或继续用 `pastes/` 下的文件本身（内容已在磁盘上，编辑只是便利）。
 
 > **与 dsh 自带文件面板的区别**：自带面板能**浏览**工作区文件（包括 `pastes/`），但只读、改不了；装了 better-sidebar 才有编辑入口。两者的差别只在"能不能改"，不在"能不能看"。
 
