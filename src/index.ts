@@ -583,23 +583,27 @@ class PasteStoreService extends TypertRemoteService {
    * row renders as an editable field.
    *
    * A WRITE PATH, not a service: the service's mere presence once made the row
-   * promise a save that could never be read back. Which write path counts differs
-   * by line —
-   *   - 0.1.5 keeps the user's value and reads it back with `get`, closing the loop;
-   *   - 0.1.7 has no `get` at all: the field is written into this plugin's own
-   *     Config, and that write only lands because the field is declared volatile.
-   * Anything else (no provider, no `update`, a line whose schema cannot be marked
-   * volatile) leaves the row in its honest "edit cordis.patch.yml" state.
+   * promise a save that could never be read back. The two lines close the loop
+   * DIFFERENTLY, so the capability they require differs too —
+   *   - 0.1.5 keeps the user's value in dsh's own settings document: it reads back
+   *     with `get` and writes with `update`. `.volatile()` does not exist on that
+   *     line at all (schemastery 3.18.2) and is not needed there.
+   *   - 0.1.7+ has no `get`: the field is written into this plugin's own Config and
+   *     read back through `describe().user`. That write only lands because the field
+   *     is declared volatile — so volatile is required on THIS path, not in general.
+   * Anything else (no provider, no `update`) leaves the row in its honest
+   * "edit cordis.patch.yml" state.
    */
   private canConfigure(): boolean {
     const settings = this.settings()
     if (typeof settings?.update !== 'function') return false
-    // A READABLE user layer is what keeps the row honest: 0.1.5 reads it with
-    // `get`, 0.1.7+ projects it into `describe().user`. Declaring volatile alone
-    // only proves a write can land — a line that can store but never read back
-    // would render a save button whose value the plugin can never see.
-    const readable = typeof settings.get === 'function' || typeof settings.describe === 'function'
-    return readable && schemaVolatileCapable
+    // 0.1.5: get() + update() close the loop by themselves. Requiring `.volatile`
+    // here would make the row READ-ONLY on a line `package.json` still declares
+    // compatible (`^0.1.5-rc.1`) — a regression this early return prevents.
+    if (typeof settings.get === 'function') return true
+    // 0.1.7+: readable through describe(), and writable only because the field is
+    // volatile. Both are required on this path.
+    return typeof settings.describe === 'function' && schemaVolatileCapable
   }
 
   /** Build the wire payload the browser reads (and re-reads after every write). */

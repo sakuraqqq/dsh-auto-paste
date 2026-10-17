@@ -1,12 +1,12 @@
 # CODE-METRICS.md — dsh-auto-paste 代码度量报告（防屎山 P2）
 
-> 生成命令：`npm run metrics`（node tools/metrics.mjs）；生成时间：2026-10-14T14:03:22.480Z
+> 生成命令：`npm run metrics`（node tools/metrics.mjs）；生成时间：2026-10-17T06:43:56.245Z
 > 度量对象：`src/**/*.js`（web client 半身）+ `scripts/**/*.mjs` + `smoke.mjs`；`src/*.ts` 由 tsc 守门、`tests/` 自证、构建产物不度量。
 > 阈值：圈复杂度 ≤10、认知复杂度 ≤15（超限 = 红名单，metrics exit 1）。
 
 ## 1. 总览
 
-- 度量文件数：5；函数总数：107；**超限函数数：0**
+- 度量文件数：6；函数总数：108；**超限函数数：0**
 - 圈复杂度最高：8；认知复杂度最高：7
 
 ## 2. 超限红名单（重构/拆分优先级）
@@ -17,33 +17,33 @@
 
 | 文件 | 函数 | 行 | 圈复杂度 | 认知复杂度 |
 |---|---|---|---|---|
-| src/client.js | onPaste | 1110 | 8 | 7 |
+| src/client.js | onPaste | 1120 | 8 | 7 |
 | src/client.js | insertTextAtCaret | 338 | 7 | 6 |
-| src/client.js | SidebarHint | 674 | 7 | 6 |
-| src/client.js | SettingsMinCharsRow | 858 | 7 | 6 |
-| src/client.js | apply | 1060 | 7 | 6 |
+| src/client.js | SidebarHint | 684 | 7 | 6 |
+| src/client.js | SettingsMinCharsRow | 868 | 7 | 6 |
+| src/client.js | apply | 1070 | 7 | 6 |
 | scripts/release.mjs | sh | 72 | 6 | 6 |
 | src/client.js | isComposerTarget | 280 | 6 | 5 |
 | src/client.js | needsBoundarySpace | 476 | 6 | 5 |
 | src/client.js | insertReferenceChip | 513 | 6 | 5 |
-| src/client.js | callPasteStore | 772 | 6 | 5 |
+| src/client.js | callPasteStore | 782 | 6 | 5 |
 | src/client.js | publishSidebar | 115 | 5 | 4 |
 | src/client.js | insertIntoContentEditable | 294 | 5 | 4 |
 | src/client.js | composerInsertion | 439 | 5 | 4 |
-| src/client.js | ownsSidebarHint | 655 | 5 | 4 |
-| src/client.js | (anonymous) | 685 | 5 | 4 |
+| src/client.js | ownsSidebarHint | 665 | 5 | 4 |
+| src/client.js | (anonymous) | 695 | 5 | 4 |
 | smoke.mjs | refuses | 58 | 4 | 4 |
 | src/client.js | mountToastSurface | 245 | 4 | 3 |
-| src/client.js | mountSidebarHint | 738 | 4 | 3 |
-| src/client.js | applyRemoteConfig | 796 | 4 | 3 |
-| src/client.js | thresholdHint | 846 | 4 | 3 |
-| src/client.js | mountSettingsRow | 997 | 4 | 3 |
-| src/client.js | (anonymous) | 1167 | 4 | 3 |
+| src/client.js | mountSidebarHint | 748 | 4 | 3 |
+| src/client.js | applyRemoteConfig | 806 | 4 | 3 |
+| src/client.js | thresholdHint | 856 | 4 | 3 |
+| src/client.js | mountSettingsRow | 1007 | 4 | 3 |
+| src/client.js | (anonymous) | 1177 | 4 | 3 |
 | src/client.js | readSidebarHint | 76 | 3 | 3 |
 | src/client.js | markSidebarHintSeen | 94 | 3 | 2 |
-| src/client.js | sessionKey | 664 | 3 | 2 |
-| src/client.js | submit | 902 | 3 | 2 |
-| src/client.js | adoptBetterSidebar | 1050 | 3 | 2 |
+| src/client.js | sessionKey | 674 | 3 | 2 |
+| src/client.js | submit | 912 | 3 | 2 |
+| src/client.js | adoptBetterSidebar | 1060 | 3 | 2 |
 | scripts/release.mjs | incVersion | 226 | 3 | 2 |
 | src/client.js | factory | 23 | 2 | 1 |
 | src/client.js | publishToasts | 164 | 2 | 1 |
@@ -53,20 +53,20 @@
 | src/client.js | insertViaExecCommand | 322 | 2 | 1 |
 | src/client.js | referenceChipOf | 412 | 2 | 1 |
 | src/client.js | miss | 444 | 2 | 1 |
-| src/client.js | currentSessionId | 586 | 2 | 1 |
-| src/client.js | shouldOfferSidebarHint | 620 | 2 | 1 |
-| src/client.js | offerSidebarHint | 629 | 2 | 1 |
-| src/client.js | (anonymous) | 706 | 2 | 1 |
-| src/client.js | (anonymous) | 871 | 2 | 1 |
-| src/client.js | (anonymous) | 878 | 2 | 1 |
+| src/client.js | currentSessionId | 596 | 2 | 1 |
+| src/client.js | shouldOfferSidebarHint | 630 | 2 | 1 |
+| src/client.js | offerSidebarHint | 639 | 2 | 1 |
+| src/client.js | (anonymous) | 716 | 2 | 1 |
 | src/client.js | (anonymous) | 881 | 2 | 1 |
-| src/client.js | write | 889 | 2 | 1 |
-| src/client.js | (anonymous) | 894 | 2 | 1 |
-| src/client.js | onKeyDown | 939 | 2 | 1 |
-| src/client.js | SettingsSidebarRow | 977 | 2 | 1 |
-| src/client.js | (anonymous) | 1066 | 2 | 1 |
-| src/client.js | (anonymous) | 1092 | 2 | 1 |
-| src/client.js | (anonymous) | 1144 | 2 | 1 |
+| src/client.js | (anonymous) | 888 | 2 | 1 |
+| src/client.js | (anonymous) | 891 | 2 | 1 |
+| src/client.js | write | 899 | 2 | 1 |
+| src/client.js | (anonymous) | 904 | 2 | 1 |
+| src/client.js | onKeyDown | 949 | 2 | 1 |
+| src/client.js | SettingsSidebarRow | 987 | 2 | 1 |
+| src/client.js | (anonymous) | 1076 | 2 | 1 |
+| src/client.js | (anonymous) | 1102 | 2 | 1 |
+| src/client.js | (anonymous) | 1154 | 2 | 1 |
 | scripts/release.mjs | gitOk | 88 | 2 | 1 |
 | smoke.mjs | get | 46 | 2 | 1 |
 | src/client.js | subscribeSidebar | 127 | 1 | 0 |
@@ -82,34 +82,35 @@
 | src/client.js | (anonymous) | 255 | 1 | 0 |
 | src/client.js | (anonymous) | 256 | 1 | 0 |
 | src/client.js | pasteReference | 393 | 1 | 0 |
-| src/client.js | (anonymous) | 528 | 1 | 0 |
-| src/client.js | consumeSidebarHint | 642 | 1 | 0 |
-| src/client.js | onClick | 727 | 1 | 0 |
-| src/client.js | (anonymous) | 742 | 1 | 0 |
-| src/client.js | (anonymous) | 746 | 1 | 0 |
-| src/client.js | (anonymous) | 748 | 1 | 0 |
-| src/client.js | (anonymous) | 749 | 1 | 0 |
-| src/client.js | (anonymous) | 774 | 1 | 0 |
-| src/client.js | savePaste | 787 | 1 | 0 |
-| src/client.js | fetchHostConfig | 820 | 1 | 0 |
-| src/client.js | (anonymous) | 864 | 1 | 0 |
-| src/client.js | (anonymous) | 884 | 1 | 0 |
-| src/client.js | (anonymous) | 897 | 1 | 0 |
-| src/client.js | (anonymous) | 898 | 1 | 0 |
-| src/client.js | onChange | 938 | 1 | 0 |
-| src/client.js | onClick | 960 | 1 | 0 |
-| src/client.js | (anonymous) | 1001 | 1 | 0 |
-| src/client.js | (anonymous) | 1005 | 1 | 0 |
-| src/client.js | (anonymous) | 1007 | 1 | 0 |
-| src/client.js | (anonymous) | 1008 | 1 | 0 |
-| src/client.js | (anonymous) | 1022 | 1 | 0 |
-| src/client.js | (anonymous) | 1023 | 1 | 0 |
-| src/client.js | (anonymous) | 1068 | 1 | 0 |
-| src/client.js | (anonymous) | 1076 | 1 | 0 |
-| src/client.js | (anonymous) | 1077 | 1 | 0 |
-| src/client.js | (anonymous) | 1092 | 1 | 0 |
-| src/client.js | (anonymous) | 1191 | 1 | 0 |
-| src/client.js | (anonymous) | 1191 | 1 | 0 |
+| src/client.js | (anonymous) | 530 | 1 | 0 |
+| src/client.js | (anonymous) | 531 | 1 | 0 |
+| src/client.js | consumeSidebarHint | 652 | 1 | 0 |
+| src/client.js | onClick | 737 | 1 | 0 |
+| src/client.js | (anonymous) | 752 | 1 | 0 |
+| src/client.js | (anonymous) | 756 | 1 | 0 |
+| src/client.js | (anonymous) | 758 | 1 | 0 |
+| src/client.js | (anonymous) | 759 | 1 | 0 |
+| src/client.js | (anonymous) | 784 | 1 | 0 |
+| src/client.js | savePaste | 797 | 1 | 0 |
+| src/client.js | fetchHostConfig | 830 | 1 | 0 |
+| src/client.js | (anonymous) | 874 | 1 | 0 |
+| src/client.js | (anonymous) | 894 | 1 | 0 |
+| src/client.js | (anonymous) | 907 | 1 | 0 |
+| src/client.js | (anonymous) | 908 | 1 | 0 |
+| src/client.js | onChange | 948 | 1 | 0 |
+| src/client.js | onClick | 970 | 1 | 0 |
+| src/client.js | (anonymous) | 1011 | 1 | 0 |
+| src/client.js | (anonymous) | 1015 | 1 | 0 |
+| src/client.js | (anonymous) | 1017 | 1 | 0 |
+| src/client.js | (anonymous) | 1018 | 1 | 0 |
+| src/client.js | (anonymous) | 1032 | 1 | 0 |
+| src/client.js | (anonymous) | 1033 | 1 | 0 |
+| src/client.js | (anonymous) | 1078 | 1 | 0 |
+| src/client.js | (anonymous) | 1086 | 1 | 0 |
+| src/client.js | (anonymous) | 1087 | 1 | 0 |
+| src/client.js | (anonymous) | 1102 | 1 | 0 |
+| src/client.js | (anonymous) | 1201 | 1 | 0 |
+| src/client.js | (anonymous) | 1201 | 1 | 0 |
 | scripts/release.mjs | (anonymous) | 52 | 1 | 0 |
 | scripts/release.mjs | log | 65 | 1 | 0 |
 | scripts/release.mjs | ok | 66 | 1 | 0 |

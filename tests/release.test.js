@@ -1300,17 +1300,29 @@ describe('settings capability probes — dsh 0.1.7 dropped get/register (2026-09
       /typeof settings\?\.update !== 'function'/,
       'a service without update can store nothing at all',
     )
+    const start = src.indexOf('private canConfigure()')
+    assert.ok(start >= 0, 'canConfigure must exist')
+    const body = src.slice(start, start + 900)
+
+    // 0.1.5 closes the loop with get() + update() ALONE. `.volatile` does not exist on
+    // that line (schemastery 3.18.2), so demanding it there turns the settings row
+    // READ-ONLY while package.json still declares `^0.1.5-rc.1`.
     assert.match(
-      src,
-      /const readable = typeof settings\.get === 'function' \|\| typeof settings\.describe === 'function'/,
-      '0.1.5 closes the loop with get; 0.1.7+ with describe().user — a line with NEITHER ' +
-        'can store a value that nothing can read back, so it must not offer to save one',
+      body,
+      /if \(typeof settings\.get === 'function'\) return true/,
+      'the get() line must be answered true without consulting .volatile',
     )
+    // 0.1.7+ reads through describe() and writes only because the field is volatile.
     assert.match(
-      src,
-      /return readable && schemaVolatileCapable/,
-      'the volatile field is still what makes the 0.1.7 write land',
+      body,
+      /typeof settings\.describe === 'function' && schemaVolatileCapable/,
+      'the describe() path must require both describe and the volatile capability',
     )
+    // ⭐ The PROPERTY, not a spelling: `.volatile` may only ever guard a path that goes
+    // through describe(). A guard anywhere else silently disables the row on the older
+    // line — that regression shipped in 0.2.4 and was caught by an outside review.
+    const volLine = (body.match(/[^\n]*schemaVolatileCapable[^\n]*/) ?? [''])[0]
+    assert.match(volLine, /describe/, '.volatile may only guard the describe() path')
     assert.doesNotMatch(
       src,
       /canConfigure: this\.settings\(\) !== undefined/,
@@ -1852,16 +1864,28 @@ describe('独立审查 2026-10-14 — 十项缺陷不得复活（先红后绿）
   // 现象：insertReferenceChip 里 await serializeReference(...) 无超时。该 await
   //       永不 settle 时，.then 既不成功也不失败；而 preventDefault 已在前面执行
   //       ⇒ 输入框里什么都没有，也没有任何提示（用户以为粘贴丢了）。
-  test('D2 — serializeReference 必须带超时（Promise.race / abort 定时器 / 超时常量）', () => {
+  //
+  // ⭐ 2026-10-17 收紧（外部复核 R2 的教训）：原断言接受 `SERIALIZE_TIMEOUT_MS`
+  //    这个【形状】，于是一个只用 abort() 的实现照样转绿 —— 而 abort() 只【通知】、
+  //    不【强制】：被调用方若不理 signal，promise 永不 settle，await 依然挂死。
+  //    ⇒ 断言改落在【性质】上：兜底必须是本侧拥有的 race，而不是对被调用方的信任。
+  test('D2 — 兜底必须是本侧的 Promise.race（性质：不依赖被调用方守约）', () => {
     const src = readClientSrc()
     const start = src.indexOf('async function insertReferenceChip')
     assert.ok(start >= 0, 'insertReferenceChip 必须存在')
-    const body = src.slice(start, start + 2000)
+    const body = src.slice(start, start + 3200)
 
     assert.match(
       body,
-      /Promise\.race\(|setTimeout\([^)]*abort|SERIALIZE_TIMEOUT_MS/,
-      'serializeReference 的 await 没有任何超时保护 ⇒ 该调用挂起时粘贴会静默落空',
+      /Promise\.race\(/,
+      '只用 abort() 或一个超时常量是不够的：abort 只通知、不强制，被调用方不认 signal 时 ' +
+        'await 仍会挂死，而调用方已经 preventDefault ⇒ 无卡片、无文本、无提示（文件其实已落盘）',
+    )
+    // 反向守卫：abort 可以留着做协作式取消，但不得让 serializeReference 被裸 await。
+    assert.doesNotMatch(
+      body,
+      /await\s+controller\?\.serializeReference\?\.\([^)]*\)\s*$/m,
+      'serializeReference 不得被裸 await —— 裸 await 没有本侧兜底',
     )
   })
 
