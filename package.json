@@ -31,7 +31,8 @@
   "files": [
     "dist",
     "src",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "dsh": {
     "bundle": {
@@ -49,7 +50,8 @@
       "dshReleases": {
         "0.1.5-rc.2": "compatible",
         "0.1.7-rc.2": "compatible",
-        "0.2.0-rc.2": "compatible"
+        "0.2.0-rc.2": "compatible",
+        "0.2.1-alpha.5": "compatible"
       },
       "profiles": [
         "web"
@@ -57,7 +59,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/sync-lib.mjs",
+    "build": "tsc -p tsconfig.json --noEmit && node scripts/bundle.mjs && node scripts/sync-lib.mjs",
     "build:client": "node scripts/sync-client.mjs",
     "build:all": "npm run build && npm run build:client",
     "release": "node scripts/release.mjs",
@@ -68,9 +70,6 @@
     "format:check": "prettier --check \"src/**/*.js\" \"scripts/**/*.mjs\" \"smoke.mjs\" \"tests/**/*.js\"",
     "metrics": "node tools/metrics.mjs",
     "privacy": "node tools/privacy-scan.mjs"
-  },
-  "dependencies": {
-    "zod": "^4.4.3"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -86,11 +85,13 @@
     "@deepseek-ai/schemastery": "^3.18.2",
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.0",
+    "esbuild": "^0.28.2",
     "eslint": "^10.10.0",
     "eslint-config-prettier": "^10.1.8",
     "espree": "^11.2.0",
     "globals": "^17.12.0",
     "prettier": "^3.9.6",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "zod": "^4.4.3"
   }
 }
