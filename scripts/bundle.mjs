@@ -29,7 +29,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 // same file the bundler reads cannot drift from the bundle.
 const ZOD_VERSION = (() => {
   try {
-    return JSON.parse(readFileSync(join(root, 'node_modules', 'zod', 'package.json'), 'utf8')).version
+    return JSON.parse(readFileSync(join(root, 'node_modules', 'zod', 'package.json'), 'utf8'))
+      .version
   } catch {
     return null
   }
