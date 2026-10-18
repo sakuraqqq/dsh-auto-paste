@@ -13,6 +13,7 @@
 // `legalComments: 'eof'` is deliberate: the inlined MIT code must keep its
 // copyright notice (license requirement), not be swallowed by the bundler.
 import { build } from 'esbuild'
+import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -22,8 +23,22 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 // preserves /*! … */ and @license banners, and zod's sources use plain // comments,
 // so the notice is injected explicitly instead. Applies to the artifact that
 // actually carries zod (dist/typert.host.js), not to the one that does not.
-const ZOD_BANNER = `/*! dsh-auto-paste bundles zod (https://github.com/colinhacks/zod) — Copyright (c) 2025 Colin McDonnell, MIT License.
+//
+// ⚠️ The version is READ from the installed package, never hand-written. 0.3.0 stated
+// 4.6.5 by hand while the bundle actually contained 4.4.3. A banner generated from the
+// same file the bundler reads cannot drift from the bundle.
+const ZOD_VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(join(root, 'node_modules', 'zod', 'package.json'), 'utf8'))
+      .version
+  } catch {
+    return null
+  }
+})()
+
+const ZOD_BANNER = `/*! dsh-auto-paste bundles zod${ZOD_VERSION ? ' ' + ZOD_VERSION : ' (version unresolved at build time)'} (https://github.com/colinhacks/zod) — Copyright (c) 2025 Colin McDonnell, MIT License.
  *  Inlined by scripts/bundle.mjs so that this package declares no runtime dependencies.
+ *  The version above is read from node_modules/zod/package.json at build time, never hand-written.
  *  Full license text: node_modules/zod/LICENSE and THIRD_PARTY_NOTICES.md. */`
 
 const shared = {
