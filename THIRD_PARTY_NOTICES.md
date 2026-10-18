@@ -1,23 +1,32 @@
 # Third-party notices
 
-`dsh-auto-paste` ships **no runtime dependencies** — its `dependencies` field is
-empty. One third-party library is compiled into the published host artifact
-instead:
+`dsh-auto-paste` ships **no runtime dependencies** — the `dependencies` field is
+**absent** from its manifest (not merely empty). One third-party library is
+compiled into the published host artifact instead:
 
 ## zod
 
 | | |
 |---|---|
-| **Version bundled** | 4.6.5 |
+| **Version bundled** | **4.4.3** (exact — pinned by `package.json` and `pnpm-lock.yaml`) |
 | **License** | MIT |
 | **Upstream** | <https://github.com/colinhacks/zod> |
 | **Copyright** | Copyright (c) 2025 Colin McDonnell |
-| **Where it lives** | inlined into `dist/typert.host.js` (and its `lib/` mirror) by `scripts/bundle.mjs` |
+| **Integrity** | `sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==` — from npm registry metadata for `zod@4.4.3`, identical to `pnpm-lock.yaml` (`zod@4.4.3:` → `resolution.integrity`) |
+| **Registry shasum** | `b680f172885d18bbebf21a834ea25e55a1bbf356` |
+| **Upstream commit** | `f3c9ec03ba7a28ae72d25cc295f38674bee0f559` (`gitHead` in the registry metadata) |
+| **Where it lives** | inlined into `dist/typert.host.js` (547,122 B, zero `import` statements) by `scripts/bundle.mjs` |
+
+> **How the exact version is verifiable from the artifact itself:** esbuild leaves
+> a source marker above every inlined module. `dist/typert.host.js` carries
+> `// node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/…` markers, so the bundle
+> states which zod build it contains without trusting this file's prose.
 
 **Why inlined rather than declared as a dependency.** DSH STORE's automation policy
 sets `allowRuntimeDependencies: false`, so a declared runtime dependency — even one
 pinned to an exact version — cannot satisfy admission. Inlining removes the
-dependency edge while keeping byte-identical code. The only import site is
+dependency edge while keeping the **zod 4.4.3 sources** — bundled by esbuild from the
+same zod 4.4.3 sources. The only import site is
 `src/typert.host.ts` (the typert wire contract); `dist/index.js` contains no zod at
 all and shrinks accordingly.
 

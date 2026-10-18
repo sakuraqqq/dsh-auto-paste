@@ -1,5 +1,6 @@
-/*! dsh-auto-paste bundles zod (https://github.com/colinhacks/zod) — Copyright (c) 2025 Colin McDonnell, MIT License.
+/*! dsh-auto-paste bundles zod 4.4.3 (https://github.com/colinhacks/zod) — Copyright (c) 2025 Colin McDonnell, MIT License.
  *  Inlined by scripts/bundle.mjs so that this package declares no runtime dependencies.
+ *  The version above is read from node_modules/zod/package.json at build time, never hand-written.
  *  Full license text: node_modules/zod/LICENSE and THIRD_PARTY_NOTICES.md. */
 var __defProp = Object.defineProperty;
 var __export = (target, all) => {
