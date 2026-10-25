@@ -794,8 +794,12 @@ window.__ModuleLoader__.load({
     }
 
     /** Call the host pasteStore service over the existing connection RPC. */
-    async function savePaste(connection, sessionId, text) {
-      return callPasteStore(connection, 'pasteStore/savePaste', { text, sessionId }, RPC_TIMEOUT_MS)
+    async function savePaste(connection, sessionId, text, cwd) {
+      // The typert gateway requires every declared parameter to be present, even
+      // when its schema is optional; send '' when the session has no cwd and let
+      // the host treat it as "no cwd fallback".
+      const args = { text, sessionId, cwd: cwd ?? '.' }
+      return callPasteStore(connection, 'pasteStore/savePaste', args, RPC_TIMEOUT_MS)
     }
 
     /**
@@ -1141,6 +1145,10 @@ window.__ModuleLoader__.load({
         // 0.1.7, where that field no longer exists.
         const sessionId = currentSessionId()
         if (sessionId === null) return
+        // The host reads the session's cwd from its session store; this client
+        // only sends a placeholder so the typert descriptor sees the field, then
+        // falls back to the registry's sessionIds routing.
+        const cwd = '.'
 
         // Intercept: the large chunk lands in a file and the composer gets
         // a path reference (Chatbox-like attachment behavior).
@@ -1150,7 +1158,7 @@ window.__ModuleLoader__.load({
         // Distinguishes "the save failed" (fall back to raw text) from "the save
         // succeeded but a later UI step threw" (never re-insert the text).
         let saved = false
-        savePaste(connection, sessionId, text)
+        savePaste(connection, sessionId, text, cwd)
           .then(async (result) => {
             // Past this line the SAVE has succeeded — the file is on disk. Anything
             // that throws below is a UI problem, never a save failure, and must never
