@@ -1,6 +1,6 @@
 {
   "name": "dsh-auto-paste",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "dsh-auto-paste — 长文粘贴自动落盘为工作区文件，输入框只留一张引用卡片，模型只收到一行引用。A DeepSeek Harness plugin: long pastes become workspace files plus one reference chip.",
   "repository": {
     "type": "git",
