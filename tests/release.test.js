@@ -246,6 +246,28 @@ describe('resolveWorkspaceDir — strict session→workspace routing (no silent 
     assert.equal(resolveWorkspaceDir(ctxWith([]), 's1'), undefined)
     assert.equal(resolveWorkspaceDir({ get: () => undefined }, 's1'), undefined)
   })
+
+  // 2026-10-24: a live session was missing from the registry's sessionIds index,
+  // so the strict membership check false-refused a paste. The session's own cwd is
+  // the fallback — but only when it names a registered workspace path.
+  test('a live session missing from sessionIds still resolves through its registered cwd', () => {
+    assert.equal(resolveWorkspaceDir(ctxWith([wsA, wsB]), 'nobody', 'C:/ws-b'), 'C:/ws-b')
+  })
+
+  test('an unregistered cwd does not bypass the strict refusal', () => {
+    assert.throws(
+      () => resolveWorkspaceDir(ctxWith([wsA, wsB]), 'nobody', 'C:/ws-other'),
+      (err) => err instanceof Error && /refusing to save/i.test(err.message),
+    )
+  })
+})
+
+describe('savePaste — registry index fallback', () => {
+  test('src/client.js sends the typert cwd placeholder; the host resolves the session cwd', () => {
+    const src = readFileSync(join(PKG_ROOT, 'src', 'client.js'), 'utf8')
+    assert.match(src, /savePaste\(connection, sessionId, text, cwd\)/)
+    assert.match(src, /const cwd = '\.'/)
+  })
 })
 
 describe('savePasteTo — failure is loud, never swallowed', () => {
@@ -1983,7 +2005,7 @@ describe('独立审查 2026-10-14 — 十项缺陷不得复活（先红后绿）
   // ── HD7 ───────────────────────────────────────────────────────────────────
   test('HD7 — savePaste 必须同口径守卫 sessionId（不只 text）', () => {
     const src = readHostSrc()
-    const start = src.indexOf('async savePaste(text: string, sessionId: string)')
+    const start = src.indexOf('async savePaste(text: string, sessionId: string, cwd?: string)')
     assert.ok(start >= 0, 'savePaste 必须存在')
     const body = src.slice(start, start + 1100)
     assert.match(

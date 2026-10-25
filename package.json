@@ -1,7 +1,7 @@
 {
   "name": "dsh-auto-paste",
-  "version": "0.3.1",
-  "description": "dsh-auto-paste — 长文粘贴不进消息：存成工作区文件，输入框只留一张引用卡片，模型只收到一行引用（要读再读）。A DeepSeek Harness plugin: a long paste becomes a workspace file plus one reference chip, so the wall of text never enters the message.",
+  "version": "0.3.2",
+  "description": "dsh-auto-paste — 长文粘贴自动落盘为工作区文件，输入框只留一张引用卡片，模型只收到一行引用。A DeepSeek Harness plugin: long pastes become workspace files plus one reference chip.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sakuraqqq/dsh-auto-paste.git"
@@ -46,13 +46,15 @@
       ]
     },
     "compatibility": {
-      "dsh": "^0.1.5-rc.1 || ^0.2.0-rc.2",
+      "dsh": "^0.1.5-rc.1 || ^0.2.0-rc.2 || ^0.2.1-rc.2",
       "dshReleases": {
         "0.1.5-rc.2": "compatible",
         "0.1.7-rc.2": "compatible",
         "0.2.0-rc.2": "compatible",
         "0.2.1-alpha.5": "compatible",
-        "0.2.1-rc.1": "compatible"
+        "0.2.1-rc.1": "compatible",
+        "0.2.1-rc.2": "compatible",
+        "0.2.1-rc.3": "compatible"
       },
       "profiles": [
         "web"
@@ -74,8 +76,8 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1 || ^0.2.0-rc.2",
-    "@deepseek-ai/dsh-typert-protocol": "^0.1.5-rc.1 || ^0.2.0-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1 || ^0.2.0-rc.2 || ^0.2.1-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.5-rc.1 || ^0.2.0-rc.2 || ^0.2.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.2"
   },
   "devDependencies": {

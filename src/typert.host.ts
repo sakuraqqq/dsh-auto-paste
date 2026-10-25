@@ -13,6 +13,10 @@ import { z } from 'zod'
 // design (one emoji is 1 char but 4 bytes). The host is the only cap.
 const savePasteText$schema = z.string()
 const savePasteSessionId$schema = z.string()
+// Optional fallback for the session's own cwd: the host still validates it
+// against the registered workspace paths before writing, so a stale sessionIds
+// index cannot false-refuse a paste that belongs to a registered workspace.
+const savePasteCwd$schema = z.string().optional()
 
 /**
  * One strict codec descriptor.
@@ -82,6 +86,12 @@ export const TYPERT = {
           wire: 'sessionId',
           source: 'json',
           codec: codecOf('dsh-auto-paste/types#SavePasteSessionId', savePasteSessionId$schema),
+        },
+        {
+          name: 'cwd',
+          wire: 'cwd',
+          source: 'json',
+          codec: codecOf('dsh-auto-paste/types#SavePasteCwd', savePasteCwd$schema),
         },
       ],
       result: codecOf('dsh-auto-paste/types#SavedPasteWireRef', savePasteResult$schema),

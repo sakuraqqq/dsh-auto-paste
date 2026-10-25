@@ -474,9 +474,19 @@ function workspaceRefusal(reason: string, workspaces: WorkspaceLike[], sessionId
  * `undefined` therefore means "there is genuinely no workspace to write into";
  * every "could pick the wrong one" case fails loudly with a recovery hint.
  */
-export function resolveWorkspaceDir(ctx: Context, sessionId?: string): string | undefined {
+export function resolveWorkspaceDir(
+  ctx: Context,
+  sessionId?: string,
+  cwd?: string,
+): string | undefined {
   const workspaces = registeredWorkspaces(ctx)
   if (workspaces === undefined || workspaces.length === 0) return undefined
+  // The session's own cwd is the truth when the registry's sessionIds index lags
+  // (2026-10-24: a live workspace session was missing from every sessionIds list,
+  // so the membership check refused a paste that belonged to a registered
+  // workspace). Validate the path against the registry: an unregistered cwd still
+  // cannot redirect the write.
+  if (cwd !== undefined && isRegisteredWorkspace(cwd, workspaces)) return cwd
   if (sessionId !== undefined) {
     const owned = workspaces.find((workspace) => workspace.sessionIds.includes(sessionId))
     if (owned !== undefined) return owned.path
@@ -653,7 +663,7 @@ class PasteStoreService extends TypertRemoteService {
   }
 
   /** Save one pasted text chunk into the session workspace's pastes/ dir. */
-  async savePaste(text: string, sessionId: string): Promise<SavedPasteWireRef> {
+  async savePaste(text: string, sessionId: string, cwd?: string): Promise<SavedPasteWireRef> {
     // Runtime guard: the wire validates its own callers, but this is a public
     // service — a direct (in-process) caller can hand us anything, and the value
     // would otherwise travel to a filesystem write. Refuse it by name.
@@ -666,7 +676,16 @@ class PasteStoreService extends TypertRemoteService {
     if (typeof sessionId !== 'string') {
       throw new Error(`pasteStore.savePaste: sessionId must be a string (got ${typeof sessionId})`)
     }
-    const dir = resolveWorkspaceDir(this.ctx, sessionId)
+    if (cwd !== undefined && typeof cwd !== 'string') {
+      throw new Error(`pasteStore.savePaste: cwd must be a string when provided (got ${typeof cwd})`)
+    }
+    // The client cannot read a session's cwd (the scope proxy is inject-gated);
+    // the host session store is the authoritative source.
+    const sessions = this.ctx.get('sessions') as
+      | { get?: (id: string) => { header?: { cwd?: string } } | undefined }
+      | undefined
+    const sessionCwd = sessions?.get?.(sessionId)?.header?.cwd
+    const dir = resolveWorkspaceDir(this.ctx, sessionId, sessionCwd)
     if (dir === undefined) throw new Error('pasteStore: no workspace available to save the paste into')
     // The browser half also gets the absolute path: the sidebar's file API refuses
     // relative ones, so [查看] would open a file it could never save back.
@@ -675,7 +694,7 @@ class PasteStoreService extends TypertRemoteService {
 }
 
 // Wait until the host's tool registry (ctx.tools) is ready before running.
-export const inject = ['tools']
+export const inject = ['tools', 'sessions']
 
 export function apply(ctx: Context, config: PluginConfigLike = {}) {
   // An invalid value must never pass silently: log it, then fall back to the
