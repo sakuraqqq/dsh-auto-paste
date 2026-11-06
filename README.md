@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/dsh-auto-paste?color=3b6cf6)](https://www.npmjs.com/package/dsh-auto-paste)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![DSH](https://img.shields.io/badge/DSH-0.2.1--alpha.5%20%7C%200.2.1--rc.1-6b6cf6)](https://github.com/sakuraqqq/dsh-auto-paste)
+[![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.5-6b6cf6)](https://github.com/sakuraqqq/dsh-auto-paste)
 [![GitHub stars](https://img.shields.io/github/stars/sakuraqqq/dsh-auto-paste?style=social)](https://github.com/sakuraqqq/dsh-auto-paste/stargazers)
 
 **往输入框里粘 8000 字日志，最后只剩一张卡片。**
@@ -30,7 +30,10 @@ dsh plugin --profile web add dsh-auto-paste
 |---|---|
 | 0.2.1-alpha.5 | ✅ 实测可用 |
 | 0.2.1-rc.1 | ✅ 实测可用 |
-| 0.2.1-rc.2 | 未验证 |
+| 0.2.1-rc.2 | ✅ 实测可用 |
+| 0.2.1-rc.3 | ✅ 实测可用 |
+| 0.2.1-rc.4 | ✅ 同线判断可用（官方仅修 ACP 模式下诊断输出混入 stdout；未单独实测） |
+| 0.2.1-rc.5 | ✅ 实测可用 |
 
 ## 如果它帮你省了时间
 
@@ -137,12 +140,12 @@ dsh --profile headless "run a probe"                    # host 半身加载；�
 - [x] `dsh.client.platform: web` + `exports["./client"]` → `dist/client.js`
 - [x] `exports["./typert"]` → `dist/typert.host.js`（typert-loader 自动注册 remote 调用）
 - [x] 代码无外发数据：插件不发起任何网络请求，只写工作区 `pastes/` 下的本地文件
-- [x] DSH peer 范围**两段并列**（`^0.1.5-rc.1 || ^0.2.0-rc.2`）——**别改回单段**：dsh 在挂载前用 semver 逐个校验 `@deepseek-ai/dsh`/`@deepseek-ai/dsh-*` peer（带 `includePrerelease`），任一不满足就**整包拒绝加载**。单段 `^0.1.x` 会拒掉 0.2 线（官方桌面版在跑 0.2.0-rc.2）；写成区间（`>=0.1.5-rc.1 <0.3.0`）又会把**没测过的** 0.2.1+ 一并放行。并列两段 = 只放行实测过的线
+- [x] DSH peer 范围**多段并列**（`^0.1.5-rc.1 || ^0.2.0-rc.2 || ^0.2.1-rc.2`）——**别改回单段**：dsh 在挂载前用 semver 逐个校验 `@deepseek-ai/dsh`/`@deepseek-ai/dsh-*` peer（带 `includePrerelease`），任一不满足就**整包拒绝加载**。单段 `^0.1.x` 会拒掉 0.2 线（官方桌面版在跑 0.2.0-rc.2）；写成区间（`>=0.1.5-rc.1 <0.3.0`）又会把**没测过的** 0.2.1+ 一并放行。多段并列 = 只放行实测过的线
 
 ## Dependencies pinned / 依赖锁定
 
-- `@deepseek-ai/dsh-tools`: `^0.1.5-rc.1 || ^0.2.0-rc.2`（peerDependency — 两段并列，见上）
-- `@deepseek-ai/dsh-typert-protocol`: `^0.1.5-rc.1 || ^0.2.0-rc.2`（peerDependency — 同上；RPC schema 那一层）
+- `@deepseek-ai/dsh-tools`: `^0.1.5-rc.1 || ^0.2.0-rc.2 || ^0.2.1-rc.2`（peerDependency — 多段并列，见上）
+- `@deepseek-ai/dsh-typert-protocol`: `^0.1.5-rc.1 || ^0.2.0-rc.2 || ^0.2.1-rc.2`（peerDependency — 同上；RPC schema 那一层）
 - `@deepseek-ai/cordis`: `^4.0.1` (peerDependency — host provides it; runtime import of `Service` resolves through the profile's node_modules).
 - `zod`: `^4.4.3` (Typert host schema instances, same line as in-box host remotes).
 
