@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/dsh-auto-paste?color=3b6cf6)](https://www.npmjs.com/package/dsh-auto-paste)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.5%20%7C%200.2.2--rc.1-6b6cf6)](https://github.com/sakuraqqq/dsh-auto-paste)
+[![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.5%20%7C%200.2.2--rc.3-6b6cf6)](https://github.com/sakuraqqq/dsh-auto-paste)
 [![GitHub stars](https://img.shields.io/github/stars/sakuraqqq/dsh-auto-paste?style=social)](https://github.com/sakuraqqq/dsh-auto-paste/stargazers)
 
 **往输入框里粘 8000 字日志，最后只剩一张卡片。**
@@ -35,6 +35,7 @@ dsh plugin --profile web add dsh-auto-paste
 | 0.2.1-rc.4 | ✅ 同线判断可用（官方仅修 ACP 模式下诊断输出混入 stdout；未单独实测） |
 | 0.2.1-rc.5 | ✅ 实测可用 |
 | 0.2.2-rc.1 | ✅ 实测可用（桌面版） |
+| 0.2.2-rc.3 | ✅ 实测可用（桌面版） |
 
 ## 如果它帮你省了时间
 
