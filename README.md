@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/dsh-auto-paste?color=3b6cf6)](https://www.npmjs.com/package/dsh-auto-paste)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.5%20%7C%200.2.2--rc.3-6b6cf6)](https://github.com/sakuraqqq/dsh-auto-paste)
+[![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.5%20%7C%200.2.2--rc.5-6b6cf6)](https://github.com/sakuraqqq/dsh-auto-paste)
 [![GitHub stars](https://img.shields.io/github/stars/sakuraqqq/dsh-auto-paste?style=social)](https://github.com/sakuraqqq/dsh-auto-paste/stargazers)
 
 **往输入框里粘 8000 字日志，最后只剩一张卡片。**
@@ -36,6 +36,7 @@ dsh plugin --profile web add dsh-auto-paste
 | 0.2.1-rc.5 | ✅ 实测可用 |
 | 0.2.2-rc.1 | ✅ 实测可用（桌面版） |
 | 0.2.2-rc.3 | ✅ 实测可用（桌面版） |
+| 0.2.2-rc.5 | ✅ 实测可用（桌面版） |
 
 ## 如果它帮你省了时间
 
@@ -75,6 +76,30 @@ MIT License — Copyright (c) 2026 misakamaster。
    用户粘贴大段文字（约 500 字符以上）时：若输入框钩子未拦截，主动调用 save_paste 工具
    把文本存入 pastes/<时间戳>.txt，并在回复中引用该工作区相对路径，不要复述原文。
    ```
+
+### 从 Git 状态中隐藏粘贴文件
+
+当前版本把正文保存在会话工作区的 `pastes/` 下。卡片和模型都通过 `pastes/<时间戳>.txt` 这样的工作区相对路径查找文件。
+
+如果工作区就是 Git 仓库根目录，在 `.git/info/exclude` 中另起一行添加 `/pastes`。末尾省略斜杠，目录和同名符号链接都能匹配。这个规则仅作用于本地仓库的未跟踪文件。用 `git rev-parse --git-path info/exclude` 可找到实际的排除文件，用 `git check-ignore -v -- pastes` 可检查规则是否生效。
+
+如果工作区是仓库的子目录，规则应从仓库根目录写起，例如 `/frontend/pastes`。
+
+#### 用符号链接将文件存到工作区外（macOS / Linux）
+
+如果 DSH 宿主和会话都能访问外部目录，可以用 `pastes` 目录符号链接指向它。正文会写入链接目标，聊天里仍使用 `pastes/...`。在会话工作区根目录运行下面的命令，为这个工作区创建独立的临时目录。
+
+```sh
+if [ -e pastes ] || [ -L pastes ]
+then
+  printf '%s\n' 'pastes 已存在，请先备份并保留已有文件。' >&2
+else
+  paste_dir=$(mktemp -d "${TMPDIR:-/tmp}/dsh-pastes.XXXXXXXX") &&
+    ln -s "$paste_dir" pastes
+fi
+```
+
+Git 仓库可沿用上面的本地排除规则。用一段测试文本确认当前 DSH 环境能打开卡片、读取文件。如果要迁移已有的 `pastes/`，保留原来的文件名和内容，以便历史卡片还能打开。临时目录可能被系统清理，删除文件后对应卡片便无法打开。
 
 ### 可选集成：dsh-better-sidebar（在侧栏编辑粘贴文件）
 
