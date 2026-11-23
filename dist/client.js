@@ -33,8 +33,11 @@ window.__ModuleLoader__.load({
     const DEFAULT_MIN_CHARS = 500
     // RPC timeout: pastes must land quickly; failure falls back to raw text.
     const RPC_TIMEOUT_MS = 15000
-    // The startup config fetch is best-effort: never stall the listener.
-    const CONFIG_TIMEOUT_MS = 5000
+    // The startup config fetch is best-effort: never stall the listener. The
+    // Settings row bounds it the same way, then retries on these delays before it
+    // shows a readable failure and a manual 重试 button.
+    const CONFIG_TIMEOUT_MS = 8000
+    const CONFIG_RETRY_DELAYS_MS = [1000, 3000]
     // Serializing the reference chip sits ON the paste's critical path: by the time we
     // await it the caller has already called preventDefault, so a serializer that never
     // settles would leave the user with no chip, no text and no message. Bound it the
@@ -47,6 +50,10 @@ window.__ModuleLoader__.load({
     // inside apply(), because the Settings row writes it too: a preference saved
     // there must reach the listener at once, with no page reload.
     let minChars = DEFAULT_MIN_CHARS
+    // Last VALIDATED host config. The Settings row seeds itself from this so a
+    // failed live re-read cannot leave the row stuck at "正在读取 host 配置…"
+    // until the user remounts it by switching sessions.
+    let lastHostConfig = null
     // The connection the Settings row writes through. Captured in apply() because
     // the settings section renders the row with no props of its own.
     let connectionRef = null
@@ -779,9 +786,17 @@ window.__ModuleLoader__.load({
      * is known, so the three callers cannot drift apart; the endpoint stays a
      * literal at each call site, so the wire name is greppable where it is used.
      */
-    async function callPasteStore(connection, endpoint, args, timeoutMs) {
+    async function callPasteStore(connection, endpoint, args, timeoutMs, outerSignal) {
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), timeoutMs)
+      // A caller that unmounts (session switch) must be able to cancel the wire
+      // call too: the timeout alone leaves the request running for its full
+      // budget and its handlers alive. One controller, two owners, one cleanup.
+      const onOuterAbort = () => controller.abort()
+      if (outerSignal) {
+        if (outerSignal.aborted) controller.abort()
+        else outerSignal.addEventListener('abort', onOuterAbort, { once: true })
+      }
       try {
         const result = await connection.rpc.call('/api', endpoint, { args }, controller.signal)
         if (result && result.ok && result.value) return result.value
@@ -790,6 +805,7 @@ window.__ModuleLoader__.load({
         throw new Error(`${endpoint} failed: ${detail}`)
       } finally {
         clearTimeout(timer)
+        if (outerSignal) outerSignal.removeEventListener('abort', onOuterAbort)
       }
     }
 
@@ -814,6 +830,7 @@ window.__ModuleLoader__.load({
         remote.minChars > 0
       ) {
         minChars = remote.minChars
+        lastHostConfig = remote
         console.log(
           `[${PACKAGE}] config from ${origin}: minChars=${remote.minChars} (${remote.minCharsSource}), maxBytes=${remote.maxBytes}`,
         )
@@ -831,8 +848,53 @@ window.__ModuleLoader__.load({
      * this runs once at startup instead of at paste time; the listener always
      * reads whichever value is current.
      */
-    function fetchHostConfig(connection) {
-      return callPasteStore(connection, 'pasteStore/getConfig', {}, CONFIG_TIMEOUT_MS)
+    function fetchHostConfig(connection, signal) {
+      return callPasteStore(connection, 'pasteStore/getConfig', {}, CONFIG_TIMEOUT_MS, signal)
+    }
+
+    /** Readable text for a failed RPC: an aborted call is a timeout, not a crash. */
+    function describeRpcError(reason, timeoutMs) {
+      if (reason && reason.name === 'AbortError') {
+        return `host ${Math.round(timeoutMs / 1000)} 秒内没有响应（连接可能刚建立，或正在切换会话）`
+      }
+      return (reason && reason.message) || String(reason)
+    }
+
+    /**
+     * Read the host config with a bounded retry ladder.
+     *
+     * Owns exactly one AbortController and one retry timer; the returned cancel
+     * aborts both. Every callback is dropped once cancelled, so a retry that fires
+     * while the user is switching sessions can neither leak nor overwrite a newer
+     * run — the stale promise settles into a no-op.
+     */
+    function loadHostConfig({ connection, timeoutMs, retryDelays, onValue, onError }) {
+      const controller = new AbortController()
+      let retryTimer = null
+      let attempt = 0
+      let cancelled = false
+      const run = () => {
+        attempt += 1
+        fetchHostConfig(connection, controller.signal)
+          .then((payload) => {
+            if (!cancelled) onValue(payload)
+          })
+          .catch((reason) => {
+            if (cancelled || controller.signal.aborted) return
+            if (attempt <= retryDelays.length) {
+              retryTimer = setTimeout(run, retryDelays[attempt - 1])
+              onError(describeRpcError(reason, timeoutMs), true)
+            } else {
+              onError(describeRpcError(reason, timeoutMs), false)
+            }
+          })
+      }
+      run()
+      return () => {
+        cancelled = true
+        if (retryTimer !== null) clearTimeout(retryTimer)
+        controller.abort()
+      }
     }
 
     // ---- General-settings row ----------------------------------------------
@@ -857,8 +919,8 @@ window.__ModuleLoader__.load({
     ].join('')
 
     /** One line explaining where the effective value comes from, and what blocks saving. */
-    function thresholdHint(remote) {
-      if (remote === null) return '正在读取 host 配置…'
+    function thresholdHint(remote, failed) {
+      if (remote === null) return failed ? '未能读取 host 配置' : '正在读取 host 配置…'
       if (remote.canConfigure === false) {
         return '当前 dsh 无法在界面保存该值 —— 请改 cordis.patch.yml 的 minChars 并重启 dsh'
       }
@@ -870,10 +932,20 @@ window.__ModuleLoader__.load({
 
     /** The preference row: current value, save, and reset back to the deployment default. */
     function SettingsMinCharsRow() {
-      const [remote, setRemote] = React.useState(null)
-      const [draft, setDraft] = React.useState('')
+      // Seed from the config the startup fetch already validated. Starting at
+      // `null` meant one failed re-read left the row stuck on "正在读取 host
+      // 配置…" until the user switched sessions (which remounted it).
+      const [remote, setRemote] = React.useState(lastHostConfig)
+      const [draft, setDraft] = React.useState(
+        lastHostConfig === null ? '' : String(lastHostConfig.minChars),
+      )
       const [note, setNote] = React.useState('')
       const [busy, setBusy] = React.useState(false)
+      const [readFailed, setReadFailed] = React.useState(false)
+      // Bumped by the 重试 button: a new run remounts the fetch effect.
+      const [reloadToken, setReloadToken] = React.useState(0)
+      // False once unmounted: a late retry response must not touch state.
+      const aliveRef = React.useRef(true)
 
       const adopt = React.useCallback((next, message) => {
         setRemote(next)
@@ -883,33 +955,58 @@ window.__ModuleLoader__.load({
       }, [])
 
       React.useEffect(() => {
-        let mounted = true
+        aliveRef.current = true
         if (connectionRef === null) {
-          setNote('connection 未就绪 —— 刷新页面后重试')
-          return undefined
+          setReadFailed(true)
+          setNote('connection 未就绪 —— 请稍后点「重试」')
+          return () => {
+            aliveRef.current = false
+          }
         }
-        fetchHostConfig(connectionRef)
-          .then((payload) => {
-            if (mounted) adopt(payload, '')
-          })
-          .catch((reason) => {
-            if (mounted) setNote(`读取 host 配置失败：${reason.message}`)
-          })
+        // The loader owns the timer + AbortController and hands back a cancel that
+        // aborts both: without it, a retry scheduled just before an unmount
+        // (session switch) would fire into a disposed row.
+        const cancel = loadHostConfig({
+          connection: connectionRef,
+          timeoutMs: CONFIG_TIMEOUT_MS,
+          retryDelays: CONFIG_RETRY_DELAYS_MS,
+          onValue: (payload) => {
+            if (!aliveRef.current) return
+            setReadFailed(false)
+            adopt(payload, '')
+          },
+          onError: (detail, willRetry) => {
+            if (!aliveRef.current) return
+            setReadFailed(true)
+            setNote(
+              willRetry
+                ? `读取 host 配置失败：${detail}；正在重试…`
+                : `读取 host 配置失败：${detail}。点「重试」重新读取。`,
+            )
+          },
+        })
         return () => {
-          mounted = false
+          aliveRef.current = false
+          cancel()
         }
-      }, [adopt])
+      }, [adopt, reloadToken])
 
       const write = (value) => {
         if (connectionRef === null) return
         setBusy(true)
         setNote('')
         callPasteStore(connectionRef, 'pasteStore/setMinChars', { value }, CONFIG_TIMEOUT_MS)
-          .then((payload) =>
-            adopt(payload, value === null ? '已恢复部署默认值' : '已保存，立即生效'),
-          )
-          .catch((reason) => setNote(`保存失败：${reason.message}`))
-          .finally(() => setBusy(false))
+          .then((payload) => {
+            if (!aliveRef.current) return
+            adopt(payload, value === null ? '已恢复部署默认值' : '已保存，立即生效')
+          })
+          .catch((reason) => {
+            if (!aliveRef.current) return
+            setNote(`保存失败：${describeRpcError(reason, CONFIG_TIMEOUT_MS)}`)
+          })
+          .finally(() => {
+            if (aliveRef.current) setBusy(false)
+          })
       }
 
       const editable = remote !== null && remote.canConfigure !== false
@@ -932,7 +1029,7 @@ window.__ModuleLoader__.load({
           React.createElement(
             'div',
             { className: 'dsh-auto-paste-row-hint' },
-            `粘贴达到该字符数时保存为 pastes/ 附件，输入框里只留一行引用。${thresholdHint(remote)}`,
+            `粘贴达到该字符数时保存为 pastes/ 附件，输入框里只留一行引用。${thresholdHint(remote, readFailed)}`,
           ),
           note === ''
             ? null
@@ -954,6 +1051,18 @@ window.__ModuleLoader__.load({
               if (event.key === 'Enter') submit()
             },
           }),
+          readFailed
+            ? React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-auto-paste-row-button',
+                  disabled: busy,
+                  onClick: () => setReloadToken((n) => n + 1),
+                },
+                '重试',
+              )
+            : null,
           React.createElement(
             'button',
             {
