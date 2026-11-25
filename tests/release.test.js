@@ -990,6 +990,28 @@ describe('review batch A/B (2026-09-12) — release pipeline, wire cap, client h
     assert.doesNotMatch(src, /--next/, 'the dist-tag is owned by publish.yml, not by this script')
   })
 
+  // A1b — `--finish` 的自动 changelog 必须以**上一个 tag** 为基线。
+  // 用 `v${current}..HEAD` 时 tag 就是 HEAD ⇒ 列表为空；先打 tag 再补几个清理提交，
+  // 列表里就只剩清理提交（0.3.5 的 Release 就这样漏掉了两个真正的修复）。
+  test('--finish builds its fallback changelog from the PREVIOUS tag, not the released one', () => {
+    const src = readSrc('scripts', 'release.mjs')
+    assert.match(
+      src,
+      /git describe --tags --abbrev=0 v\$\{target\}\^/,
+      'the base must be the previous release tag (describe on the new tag parent)',
+    )
+    assert.match(
+      src,
+      /git log --oneline \$\{prevTag\}\.\.v\$\{target\}/,
+      'the range must run from that base to the new tag',
+    )
+    assert.doesNotMatch(
+      src,
+      /git log --oneline v\$\{current\}\.\.HEAD/,
+      'tag..HEAD is empty or only post-tag cleanup commits — never the release content',
+    )
+  })
+
   // A2 — zod `.max` counts UTF-16 chars while the host enforces UTF-8 bytes;
   // two authorities on one limit means the wrong one rejects first.
   test('the savePaste wire schema carries no character cap — the host byte cap is the authority', async () => {
