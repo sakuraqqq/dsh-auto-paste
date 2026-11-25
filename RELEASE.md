@@ -1,8 +1,8 @@
 # dsh-auto-paste 发布检查清单（Release Checklist）
 
-> 状态：E2E 已通过（2026-08-15）；许可切换 ✅（2026-08-16）；**0.3.4 已发布并转正**（2026-11-06；0.2.2-rc.1 兼容）。
-> 当前线上：`latest = next = 0.3.4`（registry 实测）；发布核验：`gitHead=383448d`、`shasum=44046c7a70f9e688c6db762e8b4f0ed2bf83e447`；PR `release-v0.3.4` → 合并 `ca0911f` → tag `v0.3.4` → `publish.yml` SUCCESS → Release `v0.3.4`。
-> 历史：0.1.4 于 2026-09-15 转正 `latest`；0.2.2（2026-10-01）；0.3.0（2026-10-17，next；运行时依赖归零）；0.3.1（2026-10-24）；0.3.2（2026-10-26）；0.3.3（2026-11-06，0.2.1-rc.4/rc.5；tag 574eefa；shasum 69e1bbebf8f702723ed71f44dc95314f0bc600b8）；0.3.4（2026-11-06，0.2.2-rc.1；tag 383448d；shasum 44046c7a70f9e688c6db762e8b4f0ed2bf83e447）。
+> 状态：E2E 已通过（2026-08-15）；许可切换 ✅（2026-08-16）；**0.3.5 已发布并转正**（2026-11-26；宿主不可用粘贴拦截 + 设置行重试）。
+> 当前线上：`latest = next = 0.3.5`（registry 实测）；发布核验：`gitHead=1b530f8`、`shasum=a9c848d131a10bf06ae976d8f11243a0f0b2ee7c`；PR `release-v0.3.5` → 合并 `1b530f8` → tag `v0.3.5` → `publish.yml` SUCCESS → 转正 `latest`。⚠️ npm 异步处理约 4 分钟才可 `npm view` 到，期间 404 属正常。
+> 历史：0.1.4 于 2026-09-15 转正 `latest`；0.2.2（2026-10-01）；0.3.0（2026-10-17，next；运行时依赖归零）；0.3.1（2026-10-24）；0.3.2（2026-10-26）；0.3.3（2026-11-06，0.2.1-rc.4/rc.5；tag 574eefa；shasum 69e1bbebf8f702723ed71f44dc95314f0bc600b8）；0.3.4（2026-11-06，0.2.2-rc.1；tag 383448d；shasum 44046c7a70f9e688c6db762e8b4f0ed2bf83e447）；0.3.5（2026-11-26，宿主不可用粘贴拦截 + 设置行重试；tag 1b530f8；shasum a9c848d131a10bf06ae976d8f11243a0f0b2ee7c）。
 > 提交链：47ad2d8 → 3a832c3 → aa59f46 → 343cbf6 → 25c4a2a → db4333b（许可切换 MIT）→ e4e8b1f（记录 v0.1.0 发布）
 > 发布标准：**全自动 E2E 通过**。半自动方案（save_paste 兜底）不发布。
 > **已发布**：dsh-auto-paste@0.1.0（2026-08-16，官方源 registry.npmjs.org，dist-tag `next`，GitHub 源仓库 https://github.com/sakuraqqq/dsh-auto-paste tag v0.1.0）。
