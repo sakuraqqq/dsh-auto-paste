@@ -197,7 +197,13 @@ if (FINISH) {
   if (!hasHandWritten) {
     let changelog = ''
     try {
-      changelog = sh(`git log --oneline v${current}..HEAD`, { silent: true })
+      // Baseline = the PREVIOUS release tag, not the tag being released.
+      // `v${current}..HEAD` is empty when the tag is HEAD (the normal case) and,
+      // worse, lists only post-tag cleanup commits when there are any — which is
+      // how 0.3.5's Release ended up documenting three docs commits and none of
+      // the two real fixes.
+      const prevTag = sh(`git describe --tags --abbrev=0 v${target}^`, { silent: true }).trim()
+      changelog = sh(`git log --oneline ${prevTag}..v${target}`, { silent: true })
     } catch {
       /* 无上个 tag 或空，忽略 */
     }

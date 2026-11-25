@@ -1,6 +1,6 @@
 # CODE-METRICS.md — dsh-auto-paste 代码度量报告（防屎山 P2）
 
-> 生成命令：`npm run metrics`（node tools/metrics.mjs）；生成时间：2026-11-25T17:55:25.767Z
+> 生成命令：`npm run metrics`（node tools/metrics.mjs）；生成时间：2026-11-25T18:55:26.075Z
 > 度量对象：`src/**/*.js`（web client 半身）+ `scripts/**/*.mjs` + `smoke.mjs`；`src/*.ts` 由 tsc 守门、`tests/` 自证、构建产物不度量。
 > 阈值：圈复杂度 ≤10、认知复杂度 ≤15（超限 = 红名单，metrics exit 1）。
 
@@ -51,7 +51,7 @@
 | src/client.js | submit | 1045 | 3 | 2 |
 | src/client.js | adoptBetterSidebar | 1205 | 3 | 2 |
 | src/client.js | scheduleHostProbe | 1248 | 3 | 2 |
-| scripts/release.mjs | incVersion | 226 | 3 | 2 |
+| scripts/release.mjs | incVersion | 232 | 3 | 2 |
 | src/client.js | factory | 23 | 2 | 1 |
 | src/client.js | publishToasts | 184 | 2 | 1 |
 | src/client.js | showToast | 196 | 2 | 1 |
@@ -134,8 +134,8 @@
 | scripts/release.mjs | log | 65 | 1 | 0 |
 | scripts/release.mjs | ok | 66 | 1 | 0 |
 | scripts/release.mjs | fail | 67 | 1 | 0 |
-| scripts/release.mjs | (anonymous) | 291 | 1 | 0 |
-| scripts/release.mjs | (anonymous) | 306 | 1 | 0 |
+| scripts/release.mjs | (anonymous) | 297 | 1 | 0 |
+| scripts/release.mjs | (anonymous) | 312 | 1 | 0 |
 | smoke.mjs | fail | 10 | 1 | 0 |
 | smoke.mjs | list | 49 | 1 | 0 |
 | smoke.mjs | (anonymous) | 69 | 1 | 0 |
