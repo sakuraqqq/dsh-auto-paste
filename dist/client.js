@@ -32,7 +32,13 @@ window.__ModuleLoader__.load({
     // config — so a local copy could never track the configured value.
     const DEFAULT_MIN_CHARS = 500
     // RPC timeout: pastes must land quickly; failure falls back to raw text.
-    const RPC_TIMEOUT_MS = 15000
+    // 5s (was 15s): a dead host never answers, so this bounds what the user
+    // stares at before the fallback (2026-11-26 mobile report, UX-2).
+    const RPC_TIMEOUT_MS = 5000
+    // Host liveness probe: a cheap getConfig with a short budget, used only when
+    // the host is known to be down (see hostOk).
+    const HOST_PROBE_TIMEOUT_MS = 2000
+    const HOST_PROBE_INTERVAL_MS = 10000
     // The startup config fetch is best-effort: never stall the listener. The
     // Settings row bounds it the same way, then retries on these delays before it
     // shows a readable failure and a manual 重试 button.
@@ -57,6 +63,13 @@ window.__ModuleLoader__.load({
     // The connection the Settings row writes through. Captured in apply() because
     // the settings section renders the row with no props of its own.
     let connectionRef = null
+    // Cached host liveness for the paste listener's SYNCHRONOUS decision.
+    // null = not probed yet, true = the last pasteStore RPC reached the host,
+    // false = the host is known gone (plugin disabled / host restarted / bundle
+    // stale). Known-gone must NEVER intercept: the paste would wait out the RPC
+    // timeout and then claim a "save failed" for a request nobody received.
+    let hostOk = null
+    let hostProbeTimer = null
     // The sessions runtime: the paste path resolves the owning session, and the
     // slot component latches the identity it was rendered for.
     let sessionsRef = null
@@ -848,8 +861,27 @@ window.__ModuleLoader__.load({
      * this runs once at startup instead of at paste time; the listener always
      * reads whichever value is current.
      */
-    function fetchHostConfig(connection, signal) {
-      return callPasteStore(connection, 'pasteStore/getConfig', {}, CONFIG_TIMEOUT_MS, signal)
+    function fetchHostConfig(connection, signal, timeoutMs = CONFIG_TIMEOUT_MS) {
+      return callPasteStore(connection, 'pasteStore/getConfig', {}, timeoutMs, signal)
+    }
+
+    /** Does this failure mean "the host is not there", rather than "it refused"? */
+    function isHostUnavailable(error) {
+      if (error && error.name === 'AbortError') return true
+      const message = String((error && error.message) || error || '')
+      return /unknown|not found|no such|unavailable|not registered|no handler/i.test(message)
+    }
+
+    /** One place for the two failure shapes: host gone vs the host refused the save. */
+    function pasteFailureMessage(unavailable, inserted) {
+      if (unavailable) {
+        return inserted
+          ? '插件后台未运行，已按普通粘贴处理'
+          : '插件后台未运行，也没能自动插回输入框——内容还在剪贴板，请手动 Ctrl+V 重试'
+      }
+      return inserted
+        ? '大段粘贴保存失败，已按原样粘贴回输入框'
+        : '大段粘贴保存失败，也没能自动插回输入框——内容还在剪贴板，请手动 Ctrl+V 重试'
     }
 
     /** Readable text for a failed RPC: an aborted call is a timeout, not a crash. */
@@ -1191,13 +1223,48 @@ window.__ModuleLoader__.load({
         return () => adoptBetterSidebar(null)
       })
 
+      // Host liveness (hostOk) is set by every pasteStore RPC outcome. The probe
+      // below is the only way back up once a failure marks the host down: the
+      // paste listener never blocks on a live check (that latency would land on
+      // every paste, not just the broken ones).
+      function clearHostProbe() {
+        if (hostProbeTimer === null) return
+        clearTimeout(hostProbeTimer)
+        hostProbeTimer = null
+      }
+      function probeHost() {
+        if (!connection) return
+        fetchHostConfig(connection, undefined, HOST_PROBE_TIMEOUT_MS)
+          .then((remote) => {
+            hostOk = true
+            applyRemoteConfig(remote, 'host-probe')
+            clearHostProbe()
+          })
+          .catch(() => {
+            hostOk = false
+            scheduleHostProbe()
+          })
+      }
+      function scheduleHostProbe() {
+        if (hostProbeTimer !== null || !connection) return
+        hostProbeTimer = setTimeout(() => {
+          hostProbeTimer = null
+          probeHost()
+        }, HOST_PROBE_INTERVAL_MS)
+      }
+
       // The host is the authority. Until its answer lands — or if it never does —
       // the documented fallback (already sitting in `minChars`) stays in force, so
       // the paste listener is never blocked on a round trip.
       if (connection) {
         fetchHostConfig(connection)
-          .then((remote) => applyRemoteConfig(remote, 'host'))
+          .then((remote) => {
+            hostOk = true
+            applyRemoteConfig(remote, 'host')
+          })
           .catch((error) => {
+            hostOk = false
+            scheduleHostProbe()
             console.warn(
               `[${PACKAGE}] host config unavailable — keeping the ${minChars}-char fallback threshold:`,
               error,
@@ -1215,6 +1282,7 @@ window.__ModuleLoader__.load({
       ctx.effect(() => () => {
         for (const timer of toastTimers) clearTimeout(timer)
         toastTimers.clear()
+        clearHostProbe()
       })
       if (!mountSettingsRow(ctx)) {
         console.warn(
@@ -1237,6 +1305,10 @@ window.__ModuleLoader__.load({
         if (!clipboard) return
         const text = clipboard.getData('text/plain')
         if (!text || text.length < minChars) return
+        // The host was already known gone: do NOT intercept. Taking the paste
+        // over would freeze the composer for the whole RPC timeout, then claim a
+        // "save failed" for a request that never reached anything (2026-11-26).
+        if (hostOk === false) return
 
         // Hardening: if the injected services never arrived, warn loudly and
         // fall back to plain paste instead of a silent TypeError mid-listener.
@@ -1273,6 +1345,7 @@ window.__ModuleLoader__.load({
             // that throws below is a UI problem, never a save failure, and must never
             // reach the catch as "we lost your paste" (see the guard there).
             saved = true
+            hostOk = true
             // Preferred: the composer's own atomic chip — filename + size, one
             // Backspace to remove, click to preview. The chip owns both verbs, so no
             // pill is published any more; the only follow-up is the one-shot hint.
@@ -1305,12 +1378,14 @@ window.__ModuleLoader__.load({
             // report what actually happened, rather than assuming it worked.
             console.error(`[${PACKAGE}] paste save failed, falling back to raw text:`, error)
             const inserted = insertTextAtCaret(target, text)
-            showToast(
-              inserted
-                ? '大段粘贴保存失败，已按原样粘贴回输入框'
-                : '大段粘贴保存失败，也没能自动插回输入框——内容还在剪贴板，请手动 Ctrl+V 重试',
-              'error',
-            )
+            const unavailable = isHostUnavailable(error)
+            if (unavailable) {
+              // Known gone: the next paste goes native, and a slow probe decides
+              // when it is safe to intercept again.
+              hostOk = false
+              scheduleHostProbe()
+            }
+            showToast(pasteFailureMessage(unavailable, inserted), 'error')
           })
       }
 
