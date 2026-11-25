@@ -72,7 +72,7 @@
     "build:all": "npm run build && npm run build:client",
     "release": "node scripts/release.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test tests/release.test.js",
+    "test": "node --test tests/release.test.js tests/paste-host-unavailable.test.js",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.js\" \"scripts/**/*.mjs\" \"smoke.mjs\" \"tests/**/*.js\"",
     "format:check": "prettier --check \"src/**/*.js\" \"scripts/**/*.mjs\" \"smoke.mjs\" \"tests/**/*.js\"",
